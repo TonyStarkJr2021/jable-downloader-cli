@@ -314,6 +314,8 @@ class FrontendRegressionTests(unittest.TestCase):
         self.assertIn("点击对应项目右侧的“查看”", dashboard)
         self.assertIn("FC2 使用 MissAV", dashboard)
         self.assertIn("普通番号优先使用 Jable", dashboard)
+        self.assertIn("300MIUM-1483", dashboard)
+        self.assertIn("服务器存储", dashboard)
         self.assertIn("JavBus 推荐磁链", dashboard)
         self.assertIn("复制磁力链接", script)
         self.assertIn("renderMagnets(task)", script)

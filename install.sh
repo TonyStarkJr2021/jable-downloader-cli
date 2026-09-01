@@ -6,7 +6,10 @@ CONFIG_DIR="/etc/jable-downloader"
 STATE_DIR="/var/lib/jable-downloader"
 COMMAND_PATH="/usr/local/bin/n"
 N_M3U8DL_PATH="/usr/local/bin/N_m3u8DL-RE"
-DATA_ROOT="${JABLE_DATA_ROOT:-/mnt/raid_hdd/AV}"
+RAID_DATA_ROOT="/mnt/raid_hdd/AV"
+SYSTEM_DATA_ROOT="/var/lib/jable-downloader-data"
+DATA_ROOT="${JABLE_DATA_ROOT:-}"
+[[ -n "$DATA_ROOT" ]] && DATA_ROOT_EXPLICIT=true || DATA_ROOT_EXPLICIT=false
 DEFAULT_REPO_URL="https://github.com/TonyStarkJr2021/jable-downloader-cli.git"
 REPO_URL="${JABLE_REPO_URL:-}"
 REPO_BRANCH="${JABLE_REPO_BRANCH:-main}"
@@ -40,7 +43,7 @@ usage() {
   cat <<'EOF'
 用法：sudo ./install.sh [选项]
 
-  --data-root PATH   数据根目录（默认 /mnt/raid_hdd/AV）
+  --data-root PATH   指定数据根目录（默认自动选择挂载硬盘或系统盘）
   --repo URL         从该 Git 仓库安装；用于 curl | bash 场景
   --branch NAME      仓库分支（默认 main）
   --web-host IP      Web 监听地址（默认 0.0.0.0）
@@ -57,7 +60,7 @@ EOF
 
 while (($#)); do
   case "$1" in
-    --data-root) DATA_ROOT="${2:?--data-root 需要路径}"; shift 2 ;;
+    --data-root) DATA_ROOT="${2:?--data-root 需要路径}"; DATA_ROOT_EXPLICIT=true; shift 2 ;;
     --repo) REPO_URL="${2:?--repo 需要 URL}"; shift 2 ;;
     --branch) REPO_BRANCH="${2:?--branch 需要名称}"; BRANCH_EXPLICIT=true; shift 2 ;;
     --web-host) WEB_HOST="${2:?--web-host 需要 IP}"; WEB_HOST_EXPLICIT=true; shift 2 ;;
@@ -75,6 +78,39 @@ if [[ ${EUID:-$(id -u)} -ne 0 ]]; then
   echo "请用 sudo 或 root 运行 install.sh。" >&2
   exit 1
 fi
+
+is_mountpoint() {
+  local path="$1"
+  [[ -d "$path" ]] || return 1
+  if command -v mountpoint >/dev/null 2>&1; then
+    mountpoint -q -- "$path"
+    return
+  fi
+  [[ -r /proc/self/mountinfo ]] || return 1
+  awk -v target="$path" '$5 == target { found = 1 } END { exit !found }' \
+    /proc/self/mountinfo
+}
+
+select_data_root() {
+  if [[ "$DATA_ROOT_EXPLICIT" == true ]]; then
+    [[ "$DATA_ROOT" == /* ]] || {
+      echo "--data-root 和 JABLE_DATA_ROOT 必须使用绝对路径。" >&2
+      exit 2
+    }
+    echo "使用指定的数据目录：$DATA_ROOT"
+    return
+  fi
+  if is_mountpoint /mnt/raid_hdd || is_mountpoint /mnt/raid_hdd/AV; then
+    DATA_ROOT="$RAID_DATA_ROOT"
+    echo "检测到已挂载硬盘，数据目录：$DATA_ROOT"
+  else
+    DATA_ROOT="$SYSTEM_DATA_ROOT"
+    echo "未检测到 /mnt/raid_hdd 挂载，自动使用 VPS 系统盘：$DATA_ROOT"
+    echo "⚠️ 视频会占用系统盘空间，请留意剩余容量。"
+  fi
+}
+
+select_data_root
 
 detect_platform() {
   if [[ ! -r /etc/os-release ]]; then
@@ -551,6 +587,7 @@ install -m 0755 "$SOURCE_DIR/bin/n" "$COMMAND_PATH"
 cat > "$CONFIG_DIR/source.env" <<EOF
 JABLE_REPO_URL=$(printf '%q' "$REPO_URL")
 JABLE_REPO_BRANCH=$(printf '%q' "$REPO_BRANCH")
+JABLE_DATA_ROOT=$(printf '%q' "$DATA_ROOT")
 JABLE_N_M3U8DL_MANAGED=$INSTALL_N_M3U8DL
 JABLE_COMMAND_BACKUP=$(printf '%q' "$COMMAND_BACKUP")
 JABLE_LEGACY_REPO_BACKUP=$(printf '%q' "$LEGACY_REPO_BACKUP")
@@ -608,8 +645,9 @@ fi
 echo
 echo "✅ 安装完成"
 echo "配置文件：$CONFIG_FILE"
+echo "数据根目录：$DATA_ROOT"
 echo "媒体目录：${DATA_DIRS[2]}"
-echo "现在可运行：n IPX-850、n FC2-PPV-1234567，或直接粘贴 Jable/MissAV 详情页链接"
+echo "现在可运行：n IPX-850、n 300MIUM-1483、n FC2-PPV-1234567，或直接粘贴 Jable/MissAV 详情页链接"
 if [[ "$WEB_ENABLED" == true ]]; then
   ACCESS_HOST="$WEB_HOST"
   [[ "$ACCESS_HOST" == "0.0.0.0" ]] && ACCESS_HOST="服务器IP"

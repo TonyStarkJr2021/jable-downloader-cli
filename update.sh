@@ -109,7 +109,7 @@ config.setdefault("missav_hls_relay", True)
 config.setdefault("javbus_fallback_enabled", True)
 config.setdefault("javbus_site", "https://www.javbus.com")
 config.setdefault("javbus_timeout_seconds", 15)
-media_root = config.get("media_dir", "/mnt/raid_hdd/AV/media")
+media_root = config.get("media_dir", "/var/lib/jable-downloader-data/media")
 config.setdefault("jav_media_dir", os.path.join(media_root, "JAV"))
 config.setdefault("fc2_media_dir", os.path.join(media_root, "FC2"))
 temporary = path + ".tmp"

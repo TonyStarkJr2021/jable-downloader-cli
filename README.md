@@ -13,13 +13,13 @@
 
 > 仅用于你有权访问和下载的内容。本项目不绕过 DRM、付费墙、验证码或访问控制。
 
-## v2.3.1
+## v2.4.0
 
-- 普通番号在 Jable 与 MissAV 均未找到直链时，Web 页面自动查询 JavBus 并展示可复制的磁力链接。
-- 推荐顺序依次为“高清中文字幕、高清、中文字幕、其他”，同一组内优先分享日期较新、文件较大的资源。
-- 只展示并复制磁力链接，不内置 BT 下载、不要求 qBittorrent，也不会自动开始磁力下载。
-- 仅接受 JavBus 官方 HTTPS 域名、匹配当前番号且包含有效 BTIH 的磁链，最多展示 30 条。
-- 一键更新自动补齐 JavBus 配置并保留既有账号、端口、媒体、Jellyfin、MetaTube 与独立番号目录结构。
+- 支持 `300MIUM-1483`、`300mium1483`、`1PONDO-123456` 等数字与字母混合前缀的番号，同时继续拒绝纯数字和不安全字符。
+- 同一条一键安装命令自动选择存储：检测到真实挂载的 `/mnt/raid_hdd` 时使用 `/mnt/raid_hdd/AV`，否则使用 VPS 系统盘 `/var/lib/jable-downloader-data`。
+- 无需挂载硬盘，也无需为无硬盘 VPS 使用不同安装命令；安装结果会显示实际数据目录并提醒系统盘容量。
+- 用户明确传入 `--data-root` 或 `JABLE_DATA_ROOT` 时始终使用指定的绝对路径。
+- 更新现有部署时保留原数据目录、媒体、账号、端口、Jellyfin、MetaTube 与 JavBus 回退配置，不自动迁移文件。
 
 ## 工作流程
 
@@ -37,7 +37,7 @@
 
 - 浏览器访问 `http://服务器IP:端口`，用户名和密码登录
 - 首次安装自动生成随机可用端口、随机用户名和强密码
-- 输入 `IPX-850`、`ipx850`、`FC2-PPV-1234567` 或详情页链接，自动标准化并查重
+- 输入 `IPX-850`、`300MIUM-1483`、`1PONDO-123456`、`FC2-PPV-1234567` 或详情页链接，自动标准化并查重
 - 自动识别来源：FC2 使用 MissAV；普通番号优先使用 Jable，未找到时转到 MissAV
 - 普通番号的两个直链来源均无结果时，在 Web 页面按画质、字幕、分享日期和大小推荐 JavBus 磁链
 - 磁链只供手动复制到用户自己的下载工具，项目不会自动提交或下载 BT 任务
@@ -51,7 +51,7 @@
 - MissAV 流量通过仅监听 `127.0.0.1` 的临时 HLS 转发层下载，任务结束即关闭
 - N_m3u8DL-RE + FFmpeg，固定启用 `--use-ffmpeg-concat-demuxer`
 - `ulimit -n 65535`，已通过 1972、2295 分片长视频验证
-- 保留 CLI：`n`、`n IPX-850`、`n ipx850`、`n "IPX 850"`
+- 保留 CLI：`n`、`n IPX-850`、`n 300MIUM-1483`、`n FC2-PPV-1234567`
 
 ## 支持系统
 
@@ -80,7 +80,7 @@ bash <(curl -fsSL https://raw.githubusercontent.com/TonyStarkJr2021/jable-downlo
 curl -fsSL https://raw.githubusercontent.com/TonyStarkJr2021/jable-downloader-cli/main/install.sh | sudo bash
 ```
 
-安装结束后终端会显示 Web 地址、随机用户名和首次密码。首次密码只显示这一次，配置文件只保存 scrypt 哈希，请立即保存。
+安装器会自动选择数据目录：如果 `/mnt/raid_hdd` 是真实挂载点，就使用 `/mnt/raid_hdd/AV`；没有挂载硬盘时自动使用 VPS 系统盘 `/var/lib/jable-downloader-data`。两种服务器使用完全相同的一键安装命令。安装结束后终端会显示实际数据目录、Web 地址、随机用户名和首次密码。首次密码只显示这一次，配置文件只保存 scrypt 哈希，请立即保存。
 
 ### 自定义端口和账号
 
@@ -95,7 +95,7 @@ bash <(curl -fsSL https://raw.githubusercontent.com/TonyStarkJr2021/jable-downlo
 
 ### 自定义数据目录
 
-默认数据根目录是 `/mnt/raid_hdd/AV`。如需改为其他服务器目录：
+一般不需要指定：安装器会自动选择已挂载硬盘或系统盘。如需使用其他已经挂载的数据盘目录：
 
 ```bash
 bash <(curl -fsSL https://raw.githubusercontent.com/TonyStarkJr2021/jable-downloader-cli/main/install.sh) --data-root /data/AV
@@ -136,6 +136,7 @@ sudo firewall-cmd --reload
 
 ```text
 IPX-850
+300MIUM-1483
 FC2-PPV-1234567
 https://jable.tv/videos/ipx-850/
 https://missav.ai/en/fc2-ppv-1234567
@@ -163,6 +164,8 @@ CLI 仍可使用：
 n IPX-850
 n ipx850
 n "IPX 850"
+n 300MIUM-1483
+n 300mium1483
 n FC2-PPV-1234567
 n fc2ppv1234567
 n "FC2 PPV 1234567"
@@ -190,7 +193,7 @@ bash <(curl -fsSL https://raw.githubusercontent.com/TonyStarkJr2021/jable-downlo
 
 完成一次 v2 升级后，后续版本也可以运行 `sudo /opt/jable-downloader/update.sh`。更新会保留 Web 账号、端口、下载配置、Chromium profile 和全部媒体；旧程序与更新前配置备份在 `/opt/jable-downloader/backups/`。
 
-从 v2.2.1 升级到 v2.3.1 时，更新器会保留配置、账号、端口、Chromium profile 和全部媒体，并自动补齐 JavBus 回退配置。不会安装或控制 qBittorrent，也不会修改 Jellyfin、MetaTube、Docker、挂载点或外部 `update-media` 命令。
+升级到 v2.4.0 时，更新器会保留当前数据目录、配置、账号、端口、Chromium profile 和全部媒体。自动存储选择只用于没有现有配置的新安装，不会把已有 RAID 或系统盘媒体迁移到别处；也不会修改 Jellyfin、MetaTube、Docker、挂载点或外部 `update-media` 命令。
 
 从 v2.1.1 或 v2.2.0 升级时，更新器仍会安装安全迁移工具。新下载立即使用独立番号目录；旧的根目录或分类目录平铺文件仍可查重和浏览，按下节确认后再迁移。
 
@@ -288,13 +291,15 @@ sudo systemctl restart jable-downloader-web
 | `/etc/jable-downloader/web.json` | Web 端口、用户名和密码哈希 |
 | `/var/lib/jable-downloader/` | Chromium profile |
 | `/usr/local/bin/n` | 全局 CLI 命令 |
-| `/mnt/raid_hdd/AV/work` | 临时分片 |
-| `/mnt/raid_hdd/AV/downloads` | 合并后的待归档文件 |
-| `/mnt/raid_hdd/AV/media` | 媒体根目录及旧版未分类成品 |
-| `/mnt/raid_hdd/AV/media/JAV/番号` | 普通 JAV 独立番号目录与正式成品 |
-| `/mnt/raid_hdd/AV/media/FC2/番号` | FC2 独立番号目录与正式成品 |
+| `<数据根目录>/work` | 临时分片 |
+| `<数据根目录>/downloads` | 合并后的待归档文件 |
+| `<数据根目录>/media` | 媒体根目录及旧版未分类成品 |
+| `<数据根目录>/media/JAV/番号` | 普通 JAV 独立番号目录与正式成品 |
+| `<数据根目录>/media/FC2/番号` | FC2 独立番号目录与正式成品 |
 
 分类目录可在 `/etc/jable-downloader/config.json` 中通过 `jav_media_dir` 和 `fc2_media_dir` 单独覆盖。`media_dir` 继续作为 Web 媒体浏览与旧版兼容的共同根目录；若把分类目录设到根目录之外，Jable CLI 仍可归档和查重，但 Web 面板不会显示根目录之外的文件。
+
+新安装的数据根目录由安装器自动选择：已挂载 RAID 使用 `/mnt/raid_hdd/AV`，无挂载硬盘使用 `/var/lib/jable-downloader-data`。可以查看安装结果或 `/etc/jable-downloader/config.json` 确认实际位置。使用系统盘时请留意可用空间；卸载程序不会删除该数据目录。
 
 JavBus 磁链回退默认启用，可通过 `javbus_fallback_enabled` 关闭；`javbus_site` 仅接受 JavBus 官方 HTTPS 域名，`javbus_timeout_seconds` 控制单次查询超时。此回退只在普通番号的 Jable 与 MissAV 都明确无结果后触发，不会影响已有下载流程或媒体目录。
 

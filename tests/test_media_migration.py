@@ -17,6 +17,12 @@ class MediaMigrationTests(unittest.TestCase):
     def test_code_from_video_and_sidecar_names(self):
         self.assertEqual(MODULE.code_from_name("ipx850.mp4"), "IPX-850")
         self.assertEqual(
+            MODULE.code_from_name("300MIUM-1483-poster.jpg"), "300MIUM-1483"
+        )
+        self.assertEqual(
+            MODULE.code_from_name("1pondo123456.mp4"), "1PONDO-123456"
+        )
+        self.assertEqual(
             MODULE.code_from_name("FC2-PPV-4968748-poster.jpg"),
             "FC2-PPV-4968748",
         )

@@ -90,13 +90,20 @@ def normalize_code(value: str) -> str:
     compact = re.sub(r"[\s_-]+", "", value.strip().upper())
     fc2_match = re.fullmatch(r"FC2(?:PPV)?(\d+)", compact)
     if fc2_match:
-        return f"FC2-PPV-{fc2_match.group(1)}"
-    match = re.fullmatch(r"([A-Z]+)(\d+)", compact)
-    if not match:
-        raise ValueError(
-            "无法识别输入，请使用 IPX-850、FC2-PPV-1234567 或受支持的详情页链接"
-        )
-    return f"{match.group(1).upper()}-{match.group(2)}"
+        normalized = f"FC2-PPV-{fc2_match.group(1)}"
+    else:
+        # Some legitimate labels start with digits (for example 300MIUM and
+        # 1PONDO). Requiring the prefix to end in a letter keeps the split before
+        # the numeric id unambiguous while still rejecting numeric-only input.
+        match = re.fullmatch(r"([A-Z0-9]*[A-Z])(\d+)", compact)
+        if not match:
+            raise ValueError(
+                "无法识别输入，请使用 IPX-850、300MIUM-1483、FC2-PPV-1234567 或受支持的详情页链接"
+            )
+        normalized = f"{match.group(1).upper()}-{match.group(2)}"
+    if len(normalized) > 32:
+        raise ValueError("番号过长，请检查输入")
+    return normalized
 
 
 def provider_from_hostname(hostname: str) -> str | None:

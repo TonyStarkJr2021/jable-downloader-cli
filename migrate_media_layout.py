@@ -13,7 +13,10 @@ from typing import Any
 
 
 FC2_PATTERN = re.compile(r"^FC2(?:[-_ ]?PPV)?[-_ ]?(\d+)", re.IGNORECASE)
-JAV_PATTERN = re.compile(r"^([A-Z]{2,10})[-_ ]?(\d{2,8})", re.IGNORECASE)
+JAV_PATTERN = re.compile(
+    r"^([A-Z0-9]{0,20}[A-Z])[-_ ]?(\d{1,16})(?=$|[^0-9])",
+    re.IGNORECASE,
+)
 
 
 @dataclass(frozen=True)

@@ -41,6 +41,16 @@ class NormalizeCodeTests(unittest.TestCase):
             with self.subTest(value=value):
                 self.assertEqual(MODULE.normalize_code(value), expected)
 
+    def test_digit_prefixed_labels_are_supported(self):
+        for value, expected in (
+            ("300MIUM-1483", "300MIUM-1483"),
+            ("300mium1483", "300MIUM-1483"),
+            ("300MIUM 1483", "300MIUM-1483"),
+            ("1pondo-123456", "1PONDO-123456"),
+        ):
+            with self.subTest(value=value):
+                self.assertEqual(MODULE.normalize_code(value), expected)
+
     def test_fc2_supported_forms(self):
         expected = "FC2-PPV-4968748"
         for value in (
@@ -54,7 +64,14 @@ class NormalizeCodeTests(unittest.TestCase):
                 self.assertEqual(MODULE.normalize_code(value), expected)
 
     def test_rejects_unsafe_or_ambiguous_input(self):
-        for value in ("", "850", "IPX", "IPX-850;rm", "IPX/850"):
+        for value in (
+            "",
+            "850",
+            "IPX",
+            "IPX-850;rm",
+            "IPX/850",
+            f"A{'B' * 32}123",
+        ):
             with self.subTest(value=value):
                 with self.assertRaises(ValueError):
                     MODULE.normalize_code(value)

@@ -65,6 +65,14 @@ class InstallerPlatformTests(unittest.TestCase):
         self.assertIn("curl-cffi", REQUIREMENTS)
         self.assertIn("FC2-PPV-1234567", README)
 
+    def test_one_command_auto_selects_raid_or_system_disk(self):
+        self.assertIn('RAID_DATA_ROOT="/mnt/raid_hdd/AV"', INSTALLER)
+        self.assertIn('SYSTEM_DATA_ROOT="/var/lib/jable-downloader-data"', INSTALLER)
+        self.assertIn("is_mountpoint()", INSTALLER)
+        self.assertIn("select_data_root()", INSTALLER)
+        self.assertIn("自动使用 VPS 系统盘", INSTALLER)
+        self.assertIn("DATA_ROOT_EXPLICIT=true", INSTALLER)
+
     def test_classified_media_directories_are_upgrade_safe(self):
         for script in (INSTALLER, UPDATER):
             self.assertIn('config.setdefault("jav_media_dir"', script)
@@ -96,7 +104,7 @@ class InstallerPlatformTests(unittest.TestCase):
         self.assertIn("gh release upload", workflow)
 
     def test_release_version_is_consistent(self):
-        self.assertEqual(VERSION, "2.3.1")
+        self.assertEqual(VERSION, "2.4.0")
         self.assertIn(f'__version__ = "{VERSION}"', WEB_INIT)
         self.assertIn(f"## v{VERSION}", README)
         self.assertTrue(RELEASE_NOTES.is_file())
