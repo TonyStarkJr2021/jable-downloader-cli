@@ -21,6 +21,7 @@ UMask=0077
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=full
+ReadWritePaths=/etc/jable-downloader
 LockPersonality=true
 RestrictSUIDSGID=true
 

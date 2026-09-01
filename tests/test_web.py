@@ -3,6 +3,7 @@ import re
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from fastapi.testclient import TestClient
 
@@ -16,9 +17,10 @@ from jable_web.tasks import safe_log_line
 class DummyTaskManager:
     def __init__(self):
         self.started = []
+        self.state = "idle"
 
     def snapshot(self):
-        return {"state": "idle", "code": None, "logs": []}
+        return {"state": self.state, "code": None, "logs": []}
 
     def start(self, code):
         self.started.append(code)
@@ -95,6 +97,8 @@ class WebAppTests(unittest.TestCase):
                 {
                     "username": "admin",
                     "password_hash": hash_password("test-password-123"),
+                    "host": "127.0.0.1",
+                    "port": 28491,
                     "secure_cookie": False,
                     "session_timeout_seconds": 600,
                     "login_max_attempts": 5,
@@ -135,6 +139,9 @@ class WebAppTests(unittest.TestCase):
     def test_media_apis_require_login(self):
         self.assertEqual(self.client.get("/api/media").status_code, 401)
         self.assertEqual(self.client.get("/download/IPX-850.mp4").status_code, 401)
+        self.assertEqual(
+            self.client.get("/settings", follow_redirects=False).status_code, 303
+        )
 
     def test_login_csrf_task_csrf_and_range_download(self):
         csrf = self.login()
@@ -152,6 +159,92 @@ class WebAppTests(unittest.TestCase):
         self.assertEqual(response.status_code, 206)
         self.assertEqual(response.content, b"2345")
         self.assertEqual(response.headers["content-range"], "bytes 2-5/10")
+
+    def test_account_settings_require_current_password_and_persist_hash(self):
+        csrf = self.login()
+        wrong = self.client.post(
+            "/api/settings/account",
+            json={
+                "username": "new_admin",
+                "new_password": "new-password-123",
+                "confirm_password": "new-password-123",
+                "current_password": "wrong-password",
+            },
+            headers={"X-CSRF-Token": csrf},
+        )
+        self.assertEqual(wrong.status_code, 403)
+        changed = self.client.post(
+            "/api/settings/account",
+            json={
+                "username": "new_admin",
+                "new_password": "new-password-123",
+                "confirm_password": "new-password-123",
+                "current_password": "test-password-123",
+            },
+            headers={"X-CSRF-Token": csrf},
+        )
+        self.assertEqual(changed.status_code, 200)
+        saved = json.loads(self.web_config.read_text(encoding="utf-8"))
+        self.assertEqual(saved["username"], "new_admin")
+        self.assertTrue(verify_password("new-password-123", saved["password_hash"]))
+        self.assertNotIn("new-password-123", self.web_config.read_text(encoding="utf-8"))
+
+    def test_port_settings_check_password_conflict_and_schedule_restart(self):
+        csrf = self.login()
+        headers = {"X-CSRF-Token": csrf}
+        with mock.patch("jable_web.app.port_available", return_value=False):
+            conflict = self.client.post(
+                "/api/settings/port",
+                json={"port": 34567, "current_password": "test-password-123"},
+                headers=headers,
+            )
+        self.assertEqual(conflict.status_code, 409)
+        with (
+            mock.patch("jable_web.app.port_available", return_value=True),
+            mock.patch("jable_web.app.schedule_restart") as restart,
+        ):
+            changed = self.client.post(
+                "/api/settings/port",
+                json={"port": 34567, "current_password": "test-password-123"},
+                headers=headers,
+            )
+        self.assertEqual(changed.status_code, 200)
+        self.assertTrue(changed.json()["restart"])
+        self.assertIn(":34567/settings", changed.json()["new_url"])
+        restart.assert_called_once()
+        saved = json.loads(self.web_config.read_text(encoding="utf-8"))
+        self.assertEqual(saved["port"], 34567)
+
+    def test_port_change_is_blocked_during_download(self):
+        csrf = self.login()
+        self.tasks.state = "running"
+        blocked = self.client.post(
+            "/api/settings/port",
+            json={"port": 34568, "current_password": "test-password-123"},
+            headers={"X-CSRF-Token": csrf},
+        )
+        self.assertEqual(blocked.status_code, 409)
+        saved = json.loads(self.web_config.read_text(encoding="utf-8"))
+        self.assertEqual(saved["port"], 28491)
+
+    def test_settings_page_contains_firewall_warning(self):
+        self.login()
+        page = self.client.get("/settings")
+        self.assertEqual(page.status_code, 200)
+        self.assertIn("防火墙和云服务器安全组", page.text)
+        self.assertIn("保存并重启 Web", page.text)
+
+
+class FrontendRegressionTests(unittest.TestCase):
+    def test_requested_copy_and_log_scrolling_are_present(self):
+        root = Path(__file__).parents[1] / "jable_web"
+        dashboard = (root / "templates" / "dashboard.html").read_text(encoding="utf-8")
+        script = (root / "static" / "app.js").read_text(encoding="utf-8")
+        css = (root / "static" / "app.css").read_text(encoding="utf-8")
+        self.assertIn("<h2>已完成</h2>", dashboard)
+        self.assertIn("点击对应项目右侧的“查看”", dashboard)
+        self.assertIn("log.scrollTop = log.scrollHeight", script)
+        self.assertIn("clamp(26px, 3vw, 42px)", css)
 
 
 if __name__ == "__main__":

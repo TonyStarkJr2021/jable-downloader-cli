@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="csrf-token" content="{{ csrf_token }}">
+    <title>后台设置 · Jable Downloader</title>
+    <link rel="stylesheet" href="/static/app.css">
+    <script src="/static/settings.js" defer></script>
+  </head>
+  <body>
+    <header class="topbar">
+      <a class="brand" href="/" aria-label="返回下载首页">
+        <span class="brand-mark small" aria-hidden="true">JD</span>
+        <span>Jable Downloader</span>
+      </a>
+      <div class="top-actions">
+        <a class="ghost-button" href="/">返回首页</a>
+        <form action="/logout" method="post">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <button class="ghost-button" type="submit">退出</button>
+        </form>
+      </div>
+    </header>
+    <main class="shell settings-shell">
+      <div class="settings-heading">
+        <p class="eyebrow">ADMIN SETTINGS</p>
+        <h1>后台设置</h1>
+        <p class="muted">修改登录账号或 Web 访问端口。保存前需要验证当前密码。</p>
+      </div>
+      <section class="settings-grid">
+        <article class="settings-card">
+          <p class="eyebrow">ACCOUNT</p>
+          <h2>登录账号</h2>
+          <form id="account-form" class="settings-form">
+            <label for="username">用户名</label>
+            <input id="username" name="username" value="{{ username }}" required>
+            <label for="new-password">新密码</label>
+            <input id="new-password" name="new_password" type="password" minlength="12" autocomplete="new-password" placeholder="不修改请留空">
+            <label for="confirm-password">确认新密码</label>
+            <input id="confirm-password" name="confirm_password" type="password" minlength="12" autocomplete="new-password" placeholder="再次输入新密码">
+            <label for="account-current-password">当前密码</label>
+            <input id="account-current-password" name="current_password" type="password" autocomplete="current-password" required>
+            <button class="primary-button" type="submit">保存账号设置</button>
+          </form>
+          <div id="account-message" class="settings-message" role="status" aria-live="polite"></div>
+        </article>
+        <article class="settings-card">
+          <p class="eyebrow">NETWORK</p>
+          <h2>Web 访问端口</h2>
+          <form id="port-form" class="settings-form">
+            <label for="port">端口</label>
+            <input id="port" name="port" type="number" min="1024" max="65535" value="{{ port }}" required>
+            <div class="warning-box">
+              <strong>修改前请先放行新端口</strong>
+              <p>请在 VPS 防火墙和云服务器安全组中放行新的 TCP 端口。保存后 Web 服务会自动重启，当前地址将无法继续访问。</p>
+            </div>
+            <label class="check-row">
+              <input id="firewall-confirm" type="checkbox">
+              <span>我已确认防火墙和安全组将放行新端口</span>
+            </label>
+            <label for="port-current-password">当前密码</label>
+            <input id="port-current-password" name="current_password" type="password" autocomplete="current-password" required>
+            <button class="primary-button" type="submit">保存并重启 Web</button>
+          </form>
+          <div id="port-message" class="settings-message" role="status" aria-live="polite"></div>
+        </article>
+      </section>
+    </main>
+  </body>
+</html>

@@ -4,8 +4,11 @@ import hmac
 import json
 import os
 import secrets
+import subprocess
+import threading
+import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
@@ -13,7 +16,13 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from jable_downloader import duration_text
-from jable_web.auth import LoginLimiter, Session, SessionStore, verify_password
+from jable_web.auth import (
+    LoginLimiter,
+    Session,
+    SessionStore,
+    hash_password,
+    verify_password,
+)
 from jable_web.media import (
     content_disposition,
     iter_file,
@@ -24,6 +33,7 @@ from jable_web.media import (
     resolve_media,
 )
 from jable_web.tasks import DownloadTaskManager, TaskBusyError
+from jable_web.setup_config import USERNAME_RE, port_available, write_atomic
 
 
 COOKIE_NAME = "jable_session"
@@ -40,6 +50,7 @@ def create_app(
     web_config_path: Path | None = None,
     cli_config_path: Path | None = None,
     task_manager: DownloadTaskManager | None = None,
+    restart_service: Callable[[], None] | None = None,
 ) -> FastAPI:
     web_config_path = web_config_path or Path(
         os.environ.get("JABLE_WEB_CONFIG", "/etc/jable-downloader/web.json")
@@ -60,7 +71,7 @@ def create_app(
 
     app = FastAPI(
         title="Jable Downloader Web",
-        version="2.0.0",
+        version="2.0.1",
         docs_url=None,
         redoc_url=None,
         openapi_url=None,
@@ -74,6 +85,11 @@ def create_app(
     app.state.username = username
     app.state.password_hash = password_hash
     app.state.secure_cookie = secure_cookie
+    app.state.web_config_path = web_config_path
+    app.state.web_host = str(web_config.get("host", "0.0.0.0"))
+    app.state.web_port = int(web_config.get("port", 0))
+    app.state.config_lock = threading.Lock()
+    app.state.restart_service = restart_service or default_restart_service
 
     @app.middleware("http")
     async def security_headers(request: Request, call_next):
@@ -150,8 +166,8 @@ def create_app(
             )
         supplied_user = str(form.get("username", ""))[:128]
         supplied_password = str(form.get("password", ""))
-        valid_password = verify_password(supplied_password, password_hash)
-        valid = hmac.compare_digest(supplied_user, username) and valid_password
+        valid_password = verify_password(supplied_password, app.state.password_hash)
+        valid = hmac.compare_digest(supplied_user, app.state.username) and valid_password
         if not valid:
             app.state.limiter.fail(key)
             return templates.TemplateResponse(
@@ -161,7 +177,7 @@ def create_app(
                 context={"login_csrf": supplied_csrf, "error": "用户名或密码错误"},
             )
         app.state.limiter.clear(key)
-        token, _session = app.state.sessions.create(username)
+        token, _session = app.state.sessions.create(app.state.username)
         response = RedirectResponse("/", status_code=303)
         response.set_cookie(
             COOKIE_NAME,
@@ -197,6 +213,98 @@ def create_app(
             name="dashboard.html",
             context={"username": session.username, "csrf_token": session.csrf_token},
         )
+
+    @app.get("/settings", response_class=HTMLResponse)
+    async def settings_page(request: Request):
+        session = current_session(request)
+        if session is None:
+            return RedirectResponse("/login", status_code=303)
+        return templates.TemplateResponse(
+            request=request,
+            name="settings.html",
+            context={
+                "username": app.state.username,
+                "port": app.state.web_port,
+                "csrf_token": session.csrf_token,
+            },
+        )
+
+    @app.post("/api/settings/account")
+    async def update_account(request: Request):
+        session = require_session(request)
+        require_csrf(request, session)
+        payload = await request.json()
+        if not isinstance(payload, dict):
+            raise HTTPException(status_code=400, detail="请求格式错误")
+        current_password = str(payload.get("current_password", ""))
+        new_username = str(payload.get("username", "")).strip()
+        new_password = str(payload.get("new_password", ""))
+        confirm_password = str(payload.get("confirm_password", ""))
+        if not verify_password(current_password, app.state.password_hash):
+            raise HTTPException(status_code=403, detail="当前密码错误")
+        if not USERNAME_RE.fullmatch(new_username):
+            raise HTTPException(
+                status_code=400,
+                detail="用户名必须为 3–64 位字母、数字、点、下划线或短横线",
+            )
+        if new_password != confirm_password:
+            raise HTTPException(status_code=400, detail="两次输入的新密码不一致")
+        try:
+            new_hash = hash_password(new_password) if new_password else app.state.password_hash
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        try:
+            with app.state.config_lock:
+                config = load_json(app.state.web_config_path)
+                config["username"] = new_username
+                config["password_hash"] = new_hash
+                write_atomic(app.state.web_config_path, config)
+                app.state.username = new_username
+                app.state.password_hash = new_hash
+        except OSError as exc:
+            raise HTTPException(status_code=500, detail="保存账号设置失败") from exc
+        app.state.sessions.keep_only(request.cookies.get(COOKIE_NAME), new_username)
+        return {"message": "账号设置已保存", "username": new_username}
+
+    @app.post("/api/settings/port")
+    async def update_port(request: Request):
+        session = require_session(request)
+        require_csrf(request, session)
+        payload = await request.json()
+        if not isinstance(payload, dict):
+            raise HTTPException(status_code=400, detail="请求格式错误")
+        current_password = str(payload.get("current_password", ""))
+        if not verify_password(current_password, app.state.password_hash):
+            raise HTTPException(status_code=403, detail="当前密码错误")
+        try:
+            new_port = int(payload.get("port"))
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail="请输入有效端口") from exc
+        if not 1024 <= new_port <= 65535:
+            raise HTTPException(status_code=400, detail="端口必须在 1024–65535 之间")
+        if app.state.task_manager.snapshot().get("state") == "running":
+            raise HTTPException(status_code=409, detail="下载任务运行中，暂时不能更换端口")
+        if new_port == app.state.web_port:
+            return {"message": "端口没有变化", "restart": False}
+        if not port_available(app.state.web_host, new_port):
+            raise HTTPException(status_code=409, detail=f"端口 {new_port} 已被占用")
+        try:
+            with app.state.config_lock:
+                config = load_json(app.state.web_config_path)
+                config["port"] = new_port
+                write_atomic(app.state.web_config_path, config)
+                app.state.web_port = new_port
+        except OSError as exc:
+            raise HTTPException(status_code=500, detail="保存端口设置失败") from exc
+        schedule_restart(app.state.restart_service)
+        display_host = request.url.hostname or "服务器IP"
+        new_url = f"{request.url.scheme}://{display_host}:{new_port}/settings"
+        return {
+            "message": "端口已保存，Web 服务即将重启",
+            "restart": True,
+            "new_url": new_url,
+            "port": new_port,
+        }
 
     @app.get("/api/status")
     async def status(request: Request):
@@ -285,3 +393,20 @@ def Response416(size: int) -> JSONResponse:
         status_code=416,
         headers={"Content-Range": f"bytes */{size}", "Accept-Ranges": "bytes"},
     )
+
+
+def default_restart_service() -> None:
+    subprocess.run(
+        ["/bin/systemctl", "--no-block", "restart", "jable-downloader-web.service"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        check=False,
+    )
+
+
+def schedule_restart(callback: Callable[[], None]) -> None:
+    def delayed_restart() -> None:
+        time.sleep(1.0)
+        callback()
+
+    threading.Thread(target=delayed_restart, daemon=True).start()

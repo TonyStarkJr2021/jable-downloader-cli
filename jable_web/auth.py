@@ -89,6 +89,17 @@ class SessionStore:
             with self._lock:
                 self._sessions.pop(token, None)
 
+    def keep_only(self, token: str | None, username: str) -> None:
+        """Revoke every other session and refresh the current display name."""
+        if not token:
+            return
+        with self._lock:
+            session = self._sessions.get(token)
+            self._sessions.clear()
+            if session is not None:
+                session.username = username
+                self._sessions[token] = session
+
     def _purge_locked(self) -> None:
         now = time.time()
         expired = [token for token, value in self._sessions.items() if value.expires_at <= now]

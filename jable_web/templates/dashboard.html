@@ -14,10 +14,13 @@
         <span class="brand-mark small" aria-hidden="true">JD</span>
         <span>Jable Downloader</span>
       </a>
-      <form action="/logout" method="post">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-        <button class="ghost-button" type="submit">退出 {{ username }}</button>
-      </form>
+      <div class="top-actions">
+        <a class="ghost-button" href="/settings">设置</a>
+        <form action="/logout" method="post">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <button class="ghost-button" type="submit">退出 {{ username }}</button>
+        </form>
+      </div>
     </header>
 
     <main class="shell">
@@ -25,7 +28,7 @@
         <div>
           <p class="eyebrow">NEW DOWNLOAD</p>
           <h1>输入番号，剩下的交给服务器</h1>
-          <p class="muted">成品始终保存在 RAID；需要时再通过浏览器复制到本地。</p>
+          <p class="muted hero-help">所有成品都会保存在服务器 RAID。如需下载到本地，请在下方“已完成”列表中点击对应项目右侧的“查看”，再选择“下载到本地”。</p>
         </div>
         <form id="download-form" class="download-form">
           <label class="sr-only" for="code">番号</label>
@@ -60,8 +63,8 @@
       <section class="library-section">
         <div class="section-heading">
           <div>
-            <p class="eyebrow">MEDIA LIBRARY</p>
-            <h2>历史成品</h2>
+            <p class="eyebrow">COMPLETED</p>
+            <h2>已完成</h2>
           </div>
           <button id="refresh-media" class="ghost-button" type="button">刷新</button>
         </div>

@@ -41,8 +41,11 @@ async function refreshStatus() {
     badge.className = `status-pill ${state}`;
     document.querySelector("#progress-bar").className = state === "running" ? "running" : state;
     const log = document.querySelector("#task-log");
-    log.textContent = task.logs?.length ? task.logs.join("\n") : "等待新任务…";
-    if (state === "running") log.scrollTop = log.scrollHeight;
+    const nextLog = task.logs?.length ? task.logs.join("\n") : "等待新任务…";
+    if (log.textContent !== nextLog) {
+      log.textContent = nextLog;
+      window.requestAnimationFrame(() => { log.scrollTop = log.scrollHeight; });
+    }
     if (state === "completed" && window.lastCompletedCode !== task.code) {
       window.lastCompletedCode = task.code;
       refreshMedia();

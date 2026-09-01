@@ -6,6 +6,7 @@ INSTALLER = (Path(__file__).parents[1] / "install.sh").read_text(encoding="utf-8
 UNINSTALLER = (Path(__file__).parents[1] / "uninstall.sh").read_text(encoding="utf-8")
 README = (Path(__file__).parents[1] / "README.md").read_text(encoding="utf-8")
 UPDATER = (Path(__file__).parents[1] / "update.sh").read_text(encoding="utf-8")
+SERVICE = (Path(__file__).parents[1] / "systemd" / "jable-downloader-web.service").read_text(encoding="utf-8")
 
 
 class InstallerPlatformTests(unittest.TestCase):
@@ -45,6 +46,7 @@ class InstallerPlatformTests(unittest.TestCase):
         self.assertIn("jable-downloader-web.service", UPDATER)
         self.assertIn("jable-downloader-web.service", UNINSTALLER)
         self.assertIn("防火墙未被修改", INSTALLER)
+        self.assertIn("ReadWritePaths=/etc/jable-downloader", SERVICE)
 
     def test_public_repository_urls_are_release_ready(self):
         expected = "TonyStarkJr2021/jable-downloader-cli"

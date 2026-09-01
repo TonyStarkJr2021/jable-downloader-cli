@@ -19,16 +19,19 @@ button, input { font: inherit; }
 button, a { -webkit-tap-highlight-color: transparent; }
 
 .topbar { height: 72px; display: flex; align-items: center; justify-content: space-between; padding: 0 max(24px, calc((100vw - 1180px) / 2)); border-bottom: 1px solid var(--border); background: rgba(10, 12, 14, .86); backdrop-filter: blur(18px); position: sticky; top: 0; z-index: 10; }
+.top-actions { display: flex; align-items: center; gap: 10px; }
+.top-actions form { margin: 0; }
 .brand { color: var(--text); display: flex; align-items: center; gap: 12px; font-weight: 750; text-decoration: none; letter-spacing: -.02em; }
 .brand-mark { width: 52px; height: 52px; border-radius: 16px; display: grid; place-items: center; background: var(--accent); color: #062216; font-weight: 900; letter-spacing: -.08em; box-shadow: 0 18px 55px rgba(94, 230, 168, .18); }
 .brand-mark.small { width: 36px; height: 36px; border-radius: 11px; font-size: 13px; }
 .shell { width: min(1180px, calc(100% - 40px)); margin: 46px auto 80px; }
 .command-panel { padding: clamp(26px, 5vw, 58px); border: 1px solid var(--border); border-radius: 28px; background: linear-gradient(145deg, rgba(23, 28, 33, .97), rgba(14, 18, 21, .97)); box-shadow: 0 26px 90px rgba(0, 0, 0, .28); }
 h1, h2, p { margin-top: 0; }
-h1 { max-width: 760px; margin-bottom: 12px; font-size: clamp(32px, 5vw, 62px); line-height: 1.03; letter-spacing: -.055em; }
+h1 { max-width: 100%; margin-bottom: 12px; font-size: clamp(26px, 3vw, 42px); line-height: 1.16; letter-spacing: -.035em; }
 h2 { margin-bottom: 10px; font-size: 24px; letter-spacing: -.03em; }
 .eyebrow { margin-bottom: 12px; color: var(--accent); font-size: 11px; font-weight: 850; letter-spacing: .18em; }
 .muted { color: var(--muted); line-height: 1.65; }
+.hero-help { max-width: 920px; }
 .compact { margin: 14px 0 0; font-size: 13px; }
 .download-form { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; margin-top: 34px; }
 input { min-width: 0; border: 1px solid var(--border); border-radius: 14px; padding: 15px 17px; background: #0b0e10; color: var(--text); outline: none; transition: border-color .18s, box-shadow .18s; }
@@ -77,6 +80,22 @@ input:focus { border-color: var(--accent); box-shadow: 0 0 0 4px rgba(94, 230, 1
 .stack-form .primary-button { margin-top: 12px; }
 .alert { margin-top: 20px; border: 1px solid #683737; border-radius: 12px; padding: 12px 14px; background: #351b1b; color: #ffaaaa; }
 .security-note { margin: 22px 0 0; color: #69747a; font-size: 11px; line-height: 1.5; }
+.settings-shell { max-width: 1040px; }
+.settings-heading { margin-bottom: 26px; }
+.settings-heading h1 { margin-bottom: 10px; }
+.settings-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
+.settings-card { padding: 28px; border: 1px solid var(--border); border-radius: 22px; background: var(--panel); }
+.settings-form { display: grid; gap: 10px; margin-top: 24px; }
+.settings-form label:not(.check-row) { margin-top: 7px; color: #ccd5d9; font-size: 13px; font-weight: 700; }
+.settings-form .primary-button { margin-top: 12px; }
+.warning-box { margin-top: 8px; border: 1px solid #6b592c; border-radius: 14px; padding: 15px; background: #2c2617; color: var(--warning); }
+.warning-box p { margin: 7px 0 0; color: #cabd93; font-size: 13px; line-height: 1.55; }
+.check-row { display: grid; grid-template-columns: auto 1fr; align-items: start; gap: 10px; margin: 4px 0 8px; color: #ccd5d9; font-size: 13px; line-height: 1.5; }
+.check-row input { width: 17px; height: 17px; margin-top: 2px; accent-color: var(--accent); }
+.settings-message { min-height: 24px; margin-top: 16px; font-size: 13px; line-height: 1.55; }
+.settings-message.error { color: var(--danger); }
+.settings-message.success { color: var(--accent); }
+.settings-message a { color: var(--accent); overflow-wrap: anywhere; }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; }
 
 @media (max-width: 760px) {
@@ -86,6 +105,9 @@ input:focus { border-color: var(--accent); box-shadow: 0 0 0 4px rgba(94, 230, 1
   .command-panel { border-radius: 20px; }
   .download-form { grid-template-columns: 1fr; }
   .status-grid { grid-template-columns: 1fr; }
+  .settings-grid { grid-template-columns: 1fr; }
+  .top-actions { gap: 6px; }
+  .top-actions .ghost-button { padding: 11px 13px; }
   .media-row { grid-template-columns: 1fr auto; gap: 7px 12px; }
   .media-meta { grid-column: 1 / -1; grid-row: 2; }
   .row-action { grid-column: 2; grid-row: 1; }
