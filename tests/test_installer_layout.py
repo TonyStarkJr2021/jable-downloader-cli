@@ -8,7 +8,7 @@ README = (Path(__file__).parents[1] / "README.md").read_text(encoding="utf-8")
 UPDATER = (Path(__file__).parents[1] / "update.sh").read_text(encoding="utf-8")
 SERVICE = (Path(__file__).parents[1] / "systemd" / "jable-downloader-web.service").read_text(encoding="utf-8")
 REQUIREMENTS = (Path(__file__).parents[1] / "requirements.txt").read_text(encoding="utf-8")
-PREVIEW = Path(__file__).parents[1] / "docs" / "preview.jpg"
+PREVIEW = Path(__file__).parents[1] / "docs" / "preview.png"
 RELEASE_WORKFLOW = Path(__file__).parents[1] / ".github" / "workflows" / "release.yml"
 VERSION = (Path(__file__).parents[1] / "VERSION").read_text(encoding="utf-8").strip()
 WEB_INIT = (Path(__file__).parents[1] / "jable_web" / "__init__.py").read_text(encoding="utf-8")
@@ -87,16 +87,16 @@ class InstallerPlatformTests(unittest.TestCase):
         self.assertNotIn("gh release create", README)
 
     def test_repository_presentation_and_release_assets_are_present(self):
-        self.assertIn("docs/preview.jpg", README)
+        self.assertIn("docs/preview.png", README)
         self.assertIn("actions/workflows/ci.yml/badge.svg", README)
         self.assertTrue(PREVIEW.is_file())
-        self.assertTrue(PREVIEW.read_bytes().startswith(b"\xff\xd8\xff"))
+        self.assertTrue(PREVIEW.read_bytes().startswith(b"\x89PNG\r\n\x1a\n"))
         workflow = RELEASE_WORKFLOW.read_text(encoding="utf-8")
         self.assertIn("git archive --format=zip", workflow)
         self.assertIn("gh release upload", workflow)
 
     def test_release_version_is_consistent(self):
-        self.assertEqual(VERSION, "2.3.0")
+        self.assertEqual(VERSION, "2.3.1")
         self.assertIn(f'__version__ = "{VERSION}"', WEB_INIT)
         self.assertIn(f"## v{VERSION}", README)
         self.assertTrue(RELEASE_NOTES.is_file())

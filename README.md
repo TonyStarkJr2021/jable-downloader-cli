@@ -9,11 +9,11 @@
 
 [下载最新版](https://github.com/TonyStarkJr2021/jable-downloader-cli/releases/latest) · [一键安装](#一键安装) · [一键更新](#一键更新) · [使用说明](#使用) · [Jellyfin 迁移](#从-v211-迁移现有媒体与-jellyfin)
 
-![Jable Downloader Web 控制台预览](docs/preview.jpg)
+![Jable Downloader Web 控制台预览](docs/preview.png)
 
 > 仅用于你有权访问和下载的内容。本项目不绕过 DRM、付费墙、验证码或访问控制。
 
-## v2.3.0
+## v2.3.1
 
 - 普通番号在 Jable 与 MissAV 均未找到直链时，Web 页面自动查询 JavBus 并展示可复制的磁力链接。
 - 推荐顺序依次为“高清中文字幕、高清、中文字幕、其他”，同一组内优先分享日期较新、文件较大的资源。
@@ -190,7 +190,7 @@ bash <(curl -fsSL https://raw.githubusercontent.com/TonyStarkJr2021/jable-downlo
 
 完成一次 v2 升级后，后续版本也可以运行 `sudo /opt/jable-downloader/update.sh`。更新会保留 Web 账号、端口、下载配置、Chromium profile 和全部媒体；旧程序与更新前配置备份在 `/opt/jable-downloader/backups/`。
 
-从 v2.2.1 升级到 v2.3.0 时，更新器会保留配置、账号、端口、Chromium profile 和全部媒体，并自动补齐 JavBus 回退配置。不会安装或控制 qBittorrent，也不会修改 Jellyfin、MetaTube、Docker、挂载点或外部 `update-media` 命令。
+从 v2.2.1 升级到 v2.3.1 时，更新器会保留配置、账号、端口、Chromium profile 和全部媒体，并自动补齐 JavBus 回退配置。不会安装或控制 qBittorrent，也不会修改 Jellyfin、MetaTube、Docker、挂载点或外部 `update-media` 命令。
 
 从 v2.1.1 或 v2.2.0 升级时，更新器仍会安装安全迁移工具。新下载立即使用独立番号目录；旧的根目录或分类目录平铺文件仍可查重和浏览，按下节确认后再迁移。
 
