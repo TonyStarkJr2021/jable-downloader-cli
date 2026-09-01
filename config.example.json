@@ -1,0 +1,16 @@
+{
+  "work_dir": "/mnt/raid_hdd/AV/work",
+  "download_dir": "/mnt/raid_hdd/AV/downloads",
+  "media_dir": "/mnt/raid_hdd/AV/media",
+  "browser_profile": "/var/lib/jable-downloader/chromium-profile",
+  "chromium": "/usr/bin/chromium",
+  "n_m3u8dl_re": "/usr/local/bin/N_m3u8DL-RE",
+  "site": "https://jable.tv",
+  "m3u8_preferred_domain": "mushroomtrack.com",
+  "allow_m3u8_fallback": false,
+  "locale": "zh-CN",
+  "page_timeout_ms": 30000,
+  "search_wait_ms": 5000,
+  "capture_timeout_ms": 20000,
+  "n_m3u8dl_extra_args": []
+}

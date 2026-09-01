@@ -1,0 +1,33 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Python syntax and unit tests
+        run: |
+          python -m py_compile jable_downloader.py
+          python -m unittest discover -s tests -v
+      - name: Shell syntax
+        run: bash -n install.sh update.sh uninstall.sh bin/n
+
+  centos-shell:
+    runs-on: ubuntu-latest
+    container: quay.io/centos/centos:stream9
+    steps:
+      - uses: actions/checkout@v4
+      - name: CentOS Stream 9 shell compatibility
+        run: |
+          bash -n install.sh update.sh uninstall.sh bin/n
+          bash install.sh --help

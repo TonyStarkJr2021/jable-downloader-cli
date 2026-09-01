@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+# Managed by jable-downloader. This marker is used by uninstall.sh.
+CONFIG_FILE="${JABLE_CONFIG_FILE:-/etc/jable-downloader/config.json}"
+PYTHON_BIN="/opt/jable-downloader/venv/bin/python"
+APP_FILE="/opt/jable-downloader/jable_downloader.py"
+
+if [[ ! -r "$CONFIG_FILE" ]]; then
+  echo "❌ 找不到配置文件：$CONFIG_FILE" >&2
+  exit 1
+fi
+
+WORK_DIR="$($PYTHON_BIN -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["work_dir"])' "$CONFIG_FILE")"
+mkdir -p -- "$WORK_DIR"
+cd -- "$WORK_DIR"
+
+ulimit -n 65535 2>/dev/null || true
+
+LOCK_FILE="${WORK_DIR%/}/.jable-downloader.lock"
+exec 9>"$LOCK_FILE"
+if ! flock -n 9; then
+  echo "❌ 已有下载任务正在运行，请等待它完成。" >&2
+  exit 1
+fi
+
+export JABLE_CONFIG_FILE="$CONFIG_FILE"
+exec xvfb-run -a "$PYTHON_BIN" "$APP_FILE" "$@"
