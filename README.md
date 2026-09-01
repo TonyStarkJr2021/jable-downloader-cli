@@ -318,6 +318,20 @@ sudo systemctl restart jable-downloader-web
 
 ## 常见问题
 
+### Jellyfin 把多个 FC2 合并成同一影片的不同版本
+
+分类目录本身不要求每部影片必须再建一层文件夹，但 Jellyfin 官方对“电影”媒体库的推荐结构是一部电影一个目录。平铺文件在部分命名和识别组合下可能被自动归为多版本；遇到这种情况时，将影片整理为下面的结构最稳妥：
+
+```text
+/media/FC2/
+├── FC2-PPV-4661021/
+│   └── FC2-PPV-4661021.mp4
+└── FC2-PPV-4968748/
+    └── FC2-PPV-4968748.mp4
+```
+
+如果继续使用平铺目录，可以在 Jellyfin 中执行“拆分版本”，但重新扫描或再次识别后仍可能重新合并。独立番号目录不是下载器的硬性要求，而是 Jellyfin 电影库的兼容性建议。参见 [Jellyfin Movies 文档](https://jellyfin.org/docs/general/server/media/movies/)。
+
 ### 页面打不开
 
 先运行 `systemctl status jable-downloader-web`，再确认服务器防火墙和云安全组已放行安装结果中的端口。
