@@ -63,14 +63,25 @@ class MediaTests(unittest.TestCase):
     def test_classified_media_is_listed_and_resolved_recursively(self):
         with tempfile.TemporaryDirectory() as root:
             media = Path(root) / "media"
-            classified = media / "FC2" / "FC2-PPV-4968748.mp4"
+            classified = (
+                media
+                / "FC2"
+                / "FC2-PPV-4968748"
+                / "FC2-PPV-4968748.mp4"
+            )
             classified.parent.mkdir(parents=True)
             classified.write_bytes(b"data")
             items = list_media(media)
-            self.assertEqual(items[0]["name"], "FC2/FC2-PPV-4968748.mp4")
+            self.assertEqual(
+                items[0]["name"],
+                "FC2/FC2-PPV-4968748/FC2-PPV-4968748.mp4",
+            )
             self.assertEqual(items[0]["category"], "FC2")
             self.assertEqual(
-                resolve_media(media, "FC2/FC2-PPV-4968748.mp4"), classified
+                resolve_media(
+                    media, "FC2/FC2-PPV-4968748/FC2-PPV-4968748.mp4"
+                ),
+                classified,
             )
 
     def test_signed_m3u8_is_redacted_from_web_log(self):
@@ -203,14 +214,17 @@ class WebAppTests(unittest.TestCase):
         self.assertEqual(response.headers["content-range"], "bytes 2-5/10")
 
     def test_classified_media_download_route_supports_nested_path(self):
-        classified = self.media / "JAV" / "IPX-851.mp4"
-        classified.parent.mkdir()
+        classified = self.media / "JAV" / "IPX-851" / "IPX-851.mp4"
+        classified.parent.mkdir(parents=True)
         classified.write_bytes(b"abcdefghij")
         self.login()
         listing = self.client.get("/api/media").json()["items"]
-        self.assertIn("JAV/IPX-851.mp4", {item["name"] for item in listing})
+        self.assertIn(
+            "JAV/IPX-851/IPX-851.mp4", {item["name"] for item in listing}
+        )
         response = self.client.get(
-            "/download/JAV/IPX-851.mp4", headers={"Range": "bytes=1-3"}
+            "/download/JAV/IPX-851/IPX-851.mp4",
+            headers={"Range": "bytes=1-3"},
         )
         self.assertEqual(response.status_code, 206)
         self.assertEqual(response.content, b"bcd")

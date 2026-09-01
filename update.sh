@@ -54,14 +54,14 @@ if [[ -z "$SOURCE_DIR" ]]; then
   SOURCE_DIR="$TEMP_DIR/source"
 fi
 
-for required in jable_downloader.py hls_proxy.py config.example.json web.example.json requirements.txt bin/n update.sh uninstall.sh VERSION systemd/jable-downloader-web.service; do
+for required in jable_downloader.py migrate_media_layout.py hls_proxy.py config.example.json web.example.json requirements.txt bin/n update.sh uninstall.sh VERSION systemd/jable-downloader-web.service; do
   [[ -f "$SOURCE_DIR/$required" ]] || { echo "更新源缺少：$required" >&2; exit 1; }
 done
 [[ -d "$APP_DIR/venv" ]] || { echo "尚未安装，请先运行 install.sh。" >&2; exit 1; }
 
 BACKUP_DIR="$APP_DIR/backups/$(date +%Y%m%d%H%M%S)"
 install -d -m 0700 "$BACKUP_DIR"
-for file in jable_downloader.py hls_proxy.py requirements.txt VERSION; do
+for file in jable_downloader.py migrate_media_layout.py hls_proxy.py requirements.txt VERSION; do
   [[ -f "$APP_DIR/$file" ]] && cp -p "$APP_DIR/$file" "$BACKUP_DIR/$file"
 done
 for file in config.json web.json source.env; do
@@ -73,6 +73,7 @@ if [[ -f "$COMMAND_PATH" ]] && grep -q "Managed by jable-downloader" "$COMMAND_P
 fi
 
 install -m 0755 "$SOURCE_DIR/jable_downloader.py" "$APP_DIR/jable_downloader.py"
+install -m 0755 "$SOURCE_DIR/migrate_media_layout.py" "$APP_DIR/migrate_media_layout.py"
 install -m 0644 "$SOURCE_DIR/hls_proxy.py" "$APP_DIR/hls_proxy.py"
 install -m 0644 "$SOURCE_DIR/requirements.txt" "$APP_DIR/requirements.txt"
 install -m 0644 "$SOURCE_DIR/config.example.json" "$APP_DIR/config.example.json"
@@ -125,7 +126,7 @@ PY
 for directory in "${MEDIA_DIRS[@]}"; do
   install -d -m 0755 "$directory"
 done
-"$APP_DIR/venv/bin/python" -m py_compile "$APP_DIR/jable_downloader.py" "$APP_DIR/hls_proxy.py" "$APP_DIR"/jable_web/*.py
+"$APP_DIR/venv/bin/python" -m py_compile "$APP_DIR/jable_downloader.py" "$APP_DIR/migrate_media_layout.py" "$APP_DIR/hls_proxy.py" "$APP_DIR"/jable_web/*.py
 
 WEB_PASSWORD_DISPLAY=""
 if [[ -d /run/systemd/system ]]; then
@@ -146,7 +147,8 @@ if [[ -d /run/systemd/system ]]; then
 fi
 
 echo "✅ 更新完成：v$(cat "$APP_DIR/VERSION")"
-echo "现有媒体未移动；新下载会自动归档到 JAV/FC2 分类目录。"
+echo "现有媒体未移动；新下载会自动归档到 JAV/FC2 分类目录下的独立番号文件夹。"
+echo "旧版平铺媒体可先预览迁移：$APP_DIR/venv/bin/python $APP_DIR/migrate_media_layout.py"
 echo "配置、账号与 Chromium profile 已保留。回滚备份：$BACKUP_DIR"
 echo "JAV 目录：${MEDIA_DIRS[1]}"
 echo "FC2 目录：${MEDIA_DIRS[2]}"

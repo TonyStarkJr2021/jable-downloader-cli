@@ -24,7 +24,7 @@ jobs:
         run: |
           test "v$(cat VERSION)" = "$RELEASE_TAG"
           python -m pip install -r requirements.txt -r requirements-dev.txt
-          python -m py_compile jable_downloader.py hls_proxy.py jable_web/*.py
+          python -m py_compile jable_downloader.py migrate_media_layout.py hls_proxy.py jable_web/*.py
           python -m unittest discover -s tests -v
           bash -n install.sh update.sh uninstall.sh bin/n
 

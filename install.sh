@@ -395,7 +395,7 @@ else
   SOURCE_DIR="$TEMP_DIR/source"
 fi
 
-for required in jable_downloader.py hls_proxy.py config.example.json web.example.json requirements.txt bin/n update.sh uninstall.sh VERSION systemd/jable-downloader-web.service; do
+for required in jable_downloader.py migrate_media_layout.py hls_proxy.py config.example.json web.example.json requirements.txt bin/n update.sh uninstall.sh VERSION systemd/jable-downloader-web.service; do
   if [[ ! -f "$SOURCE_DIR/$required" ]]; then
     echo "安装源不完整，缺少：$required" >&2
     exit 1
@@ -457,6 +457,7 @@ fi
 echo "[3/7] 安装应用与 Python 环境..."
 install -d -m 0755 "$APP_DIR" "$CONFIG_DIR" "$STATE_DIR"
 install -m 0755 "$SOURCE_DIR/jable_downloader.py" "$APP_DIR/jable_downloader.py"
+install -m 0755 "$SOURCE_DIR/migrate_media_layout.py" "$APP_DIR/migrate_media_layout.py"
 install -m 0644 "$SOURCE_DIR/hls_proxy.py" "$APP_DIR/hls_proxy.py"
 install -m 0644 "$SOURCE_DIR/requirements.txt" "$APP_DIR/requirements.txt"
 install -m 0644 "$SOURCE_DIR/config.example.json" "$APP_DIR/config.example.json"
@@ -591,7 +592,7 @@ if [[ "$WEB_ENABLED" == true ]]; then
 fi
 
 echo "[7/7] 验证安装..."
-"$APP_DIR/venv/bin/python" -m py_compile "$APP_DIR/jable_downloader.py" "$APP_DIR/hls_proxy.py" "$APP_DIR"/jable_web/*.py
+"$APP_DIR/venv/bin/python" -m py_compile "$APP_DIR/jable_downloader.py" "$APP_DIR/migrate_media_layout.py" "$APP_DIR/hls_proxy.py" "$APP_DIR"/jable_web/*.py
 test -x "$CHROMIUM_PATH"
 command -v ffprobe >/dev/null
 command -v xvfb-run >/dev/null

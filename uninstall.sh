@@ -76,7 +76,7 @@ else
   echo "已保留 Chromium profile：$STATE_DIR"
 fi
 
-echo "媒体根目录及 JAV/FC2 分类目录、downloads 和 work 从未删除。"
+echo "媒体根目录及 JAV/FC2 分类目录、番号文件夹、downloads 和 work 从未删除。"
 echo "qBittorrent、MoviePilot、Docker、挂载点和防火墙均未改动。"
 if [[ -n "$LEGACY_REPO_BACKUP" && -d "$LEGACY_REPO_BACKUP" ]]; then
   echo "CentOS EOL repo 备份仍保留在：$LEGACY_REPO_BACKUP"

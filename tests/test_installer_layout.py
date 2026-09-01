@@ -10,6 +10,9 @@ SERVICE = (Path(__file__).parents[1] / "systemd" / "jable-downloader-web.service
 REQUIREMENTS = (Path(__file__).parents[1] / "requirements.txt").read_text(encoding="utf-8")
 PREVIEW = Path(__file__).parents[1] / "docs" / "preview.jpg"
 RELEASE_WORKFLOW = Path(__file__).parents[1] / ".github" / "workflows" / "release.yml"
+VERSION = (Path(__file__).parents[1] / "VERSION").read_text(encoding="utf-8").strip()
+WEB_INIT = (Path(__file__).parents[1] / "jable_web" / "__init__.py").read_text(encoding="utf-8")
+RELEASE_NOTES = Path(__file__).parents[1] / f"docs/RELEASE_NOTES_v{VERSION}.md"
 
 
 class InstallerPlatformTests(unittest.TestCase):
@@ -63,6 +66,7 @@ class InstallerPlatformTests(unittest.TestCase):
         for script in (INSTALLER, UPDATER):
             self.assertIn('config.setdefault("jav_media_dir"', script)
             self.assertIn('config.setdefault("fc2_media_dir"', script)
+            self.assertIn("migrate_media_layout.py", script)
         self.assertIn("现有媒体未移动", UPDATER)
         self.assertIn("JAV/FC2 分类目录", UNINSTALLER)
 
@@ -87,6 +91,12 @@ class InstallerPlatformTests(unittest.TestCase):
         workflow = RELEASE_WORKFLOW.read_text(encoding="utf-8")
         self.assertIn("git archive --format=zip", workflow)
         self.assertIn("gh release upload", workflow)
+
+    def test_release_version_is_consistent(self):
+        self.assertEqual(VERSION, "2.2.1")
+        self.assertIn(f'__version__ = "{VERSION}"', WEB_INIT)
+        self.assertIn(f"## v{VERSION}", README)
+        self.assertTrue(RELEASE_NOTES.is_file())
 
 
 if __name__ == "__main__":

@@ -205,11 +205,14 @@ class LocalFileTests(unittest.TestCase):
                 MODULE.existing_media("FC2-PPV-4968748", config), classified
             )
 
-    def test_media_destination_classifies_jav_and_fc2(self):
+    def test_media_destination_classifies_and_creates_per_title_path(self):
         config = {"media_dir": "/media"}
-        self.assertEqual(MODULE.media_destination("IPX-850", config), Path("/media/JAV"))
         self.assertEqual(
-            MODULE.media_destination("FC2-PPV-4968748", config), Path("/media/FC2")
+            MODULE.media_destination("IPX-850", config), Path("/media/JAV/IPX-850")
+        )
+        self.assertEqual(
+            MODULE.media_destination("FC2-PPV-4968748", config),
+            Path("/media/FC2/FC2-PPV-4968748"),
         )
 
     def test_move_to_media_creates_fc2_destination_without_overwrite(self):
@@ -227,7 +230,12 @@ class LocalFileTests(unittest.TestCase):
                     finished, "FC2-PPV-4968748", config
                 )
             self.assertEqual(
-                target, root_path / "media" / "FC2" / "FC2-PPV-4968748.mp4"
+                target,
+                root_path
+                / "media"
+                / "FC2"
+                / "FC2-PPV-4968748"
+                / "FC2-PPV-4968748.mp4",
             )
             self.assertEqual(target.read_bytes(), b"media")
             self.assertFalse(finished.exists())

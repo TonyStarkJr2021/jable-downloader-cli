@@ -257,11 +257,11 @@ def media_directories(config: dict[str, Any]) -> tuple[Path, ...]:
 
 
 def media_destination(code: str, config: dict[str, Any]) -> Path:
-    """Choose the stable library directory from the normalized identifier."""
+    """Choose the per-title Jellyfin directory from the normalized identifier."""
     root = Path(str(config["media_dir"]))
     key = "fc2_media_dir" if code.startswith("FC2-PPV-") else "jav_media_dir"
     default_name = "FC2" if key == "fc2_media_dir" else "JAV"
-    return Path(str(config.get(key, root / default_name)))
+    return Path(str(config.get(key, root / default_name))) / code
 
 
 def existing_media(code: str, config: dict[str, Any]) -> Path | None:

@@ -13,11 +13,12 @@
 
 > 仅用于你有权访问和下载的内容。本项目不绕过 DRM、付费墙、验证码或访问控制。
 
-## v2.2.0
+## v2.2.1
 
-- 普通 JAV 自动归档到 `media/JAV`，FC2 自动归档到 `media/FC2`。
+- 普通 JAV 自动归档到 `media/JAV/番号/番号.mp4`，FC2 自动归档到 `media/FC2/番号/番号.mp4`。
+- 每部影片使用独立番号目录，避免 Jellyfin 将多个 FC2 误合并为同一影片的不同版本。
 - Web 媒体库递归显示分类和已有成品，并继续兼容升级前的根目录文件。
-- v2.1.1 升级时只补齐配置和创建目录，不自动移动、覆盖或删除现有媒体。
+- 升级时不擅自移动旧媒体；内置迁移工具先完整预检目标，确认后才执行且绝不覆盖同名文件。
 - 更新前备份应用与配置；Web 账号、端口、Chromium profile、Jellyfin 和 MetaTube 部署保持不变。
 
 ## 工作流程
@@ -34,8 +35,8 @@
             ▼
  N_m3u8DL-RE + FFmpeg 合并
             │
-            ├── media/JAV
-            └── media/FC2
+            ├── media/JAV/IPX-850/IPX-850.mp4
+            └── media/FC2/FC2-PPV-1234567/FC2-PPV-1234567.mp4
 ```
 
 ## 功能
@@ -45,7 +46,7 @@
 - 输入 `IPX-850`、`ipx850`、`FC2-PPV-1234567` 或详情页链接，自动标准化并查重
 - 自动识别来源：FC2 使用 MissAV；普通番号优先使用 Jable，未找到时转到 MissAV
 - 实时查看任务状态和运行日志，同一时间只运行一个下载任务
-- 自动分类归档：普通 JAV 写入 `media/JAV`，FC2 写入 `media/FC2`
+- 自动分类归档：普通 JAV 写入 `media/JAV/番号`，FC2 写入 `media/FC2/番号`
 - 递归浏览服务器媒体库，兼容升级前仍位于 `media` 根目录的成品
 - 后台设置可视化修改登录用户名、密码和 Web 端口
 - 浏览器下载支持 HTTP Range，可暂停或续传；只复制到本地，不删除服务器原文件
@@ -153,7 +154,7 @@ https://missav.ai/en/fc2-ppv-1234567
 
 下载完成后：
 
-- 普通 JAV 保存在 `media/JAV`，FC2 保存在 `media/FC2`；
+- 普通 JAV 保存在 `media/JAV/番号`，FC2 保存在 `media/FC2/番号`；
 - 点击“下载到本地”，由浏览器按自身下载设置选择电脑保存位置；
 - 本地下载是复制，服务器文件不会被移动或删除；
 - 如果同番号已存在，任务会快速结束，可直接从媒体库下载现有文件。
@@ -191,18 +192,24 @@ bash <(curl -fsSL https://raw.githubusercontent.com/TonyStarkJr2021/jable-downlo
 
 完成一次 v2 升级后，后续版本也可以运行 `sudo /opt/jable-downloader/update.sh`。更新会保留 Web 账号、端口、下载配置、Chromium profile 和全部媒体；旧程序与更新前配置备份在 `/opt/jable-downloader/backups/`。
 
-从 v2.1.1 升级到 v2.2.0 时，更新器会自动补充 `jav_media_dir`、`fc2_media_dir` 并创建分类目录，但不会自动移动任何现有媒体。旧文件仍会被查重和 Web 面板识别；确认迁移方案后再按下节操作。
+从 v2.1.1 或 v2.2.0 升级到 v2.2.1 时，更新器会保留配置与现有媒体，并安装安全迁移工具。新下载立即使用独立番号目录；旧的根目录或分类目录平铺文件仍可查重和浏览，按下节确认后再迁移。
 
-## 从 v2.1.1 迁移现有媒体与 Jellyfin
+## 从 v2.1.1 / v2.2.0 迁移现有媒体与 Jellyfin
 
 目标结构：
 
 ```text
 /mnt/raid_hdd/AV/media/
 ├── JAV/
-│   └── 普通 JAV 视频、同名封面和 NFO
+│   └── IPX-850/
+│       ├── IPX-850.mp4
+│       ├── IPX-850.nfo
+│       └── IPX-850-poster.jpg
 └── FC2/
-    └── FC2-PPV-* 视频、同名封面和 NFO
+    └── FC2-PPV-4968748/
+        ├── FC2-PPV-4968748.mp4
+        ├── FC2-PPV-4968748.nfo
+        └── FC2-PPV-4968748-poster.jpg
 ```
 
 先更新下载器。更新完成后，新任务已经会进入分类目录，现有文件仍停留原处：
@@ -211,50 +218,23 @@ bash <(curl -fsSL https://raw.githubusercontent.com/TonyStarkJr2021/jable-downlo
 sudo /opt/jable-downloader/update.sh
 ```
 
-先查看根目录待迁移内容，不会改动文件：
-
-```bash
-find /mnt/raid_hdd/AV/media -mindepth 1 -maxdepth 1 \
-  ! -name JAV ! -name FC2 -printf '%f\n' | sort
-```
-
-确认清单后，暂停下载任务并分类移动。脚本遇到同名目标会停止，不会覆盖；FC2 的视频、封面、字幕和 NFO 只要以相同番号开头都会一起进入 FC2：
+先暂停下载任务并预览迁移计划。预览不会改动任何文件，同时会列出无法识别番号而被跳过的文件：
 
 ```bash
 sudo systemctl stop jable-downloader-web
-sudo bash <<'EOF'
-set -Eeuo pipefail
-MEDIA_ROOT=/mnt/raid_hdd/AV/media
-mkdir -p "$MEDIA_ROOT/JAV" "$MEDIA_ROOT/FC2"
-shopt -s nullglob nocasematch dotglob
+sudo /opt/jable-downloader/venv/bin/python \
+  /opt/jable-downloader/migrate_media_layout.py
+```
 
-destination_for() {
-  case "$1" in
-    FC2-PPV-*|FC2PPV-*|FC2-*) printf '%s\n' "$MEDIA_ROOT/FC2" ;;
-    *) printf '%s\n' "$MEDIA_ROOT/JAV" ;;
-  esac
-}
+确认所有源路径与目标路径正确后，加 `--apply` 执行，再启动 Web 服务：
 
-# 先检查所有目标，发现同名文件时不开始迁移。
-for source in "$MEDIA_ROOT"/*; do
-  name=${source##*/}
-  [[ "$name" == JAV || "$name" == FC2 ]] && continue
-  destination=$(destination_for "$name")
-  target="$destination/$name"
-  [[ ! -e "$target" ]] || { echo "目标已存在，停止：$target" >&2; exit 1; }
-done
-
-for source in "$MEDIA_ROOT"/*; do
-  name=${source##*/}
-  [[ "$name" == JAV || "$name" == FC2 ]] && continue
-  destination=$(destination_for "$name")
-  mv -- "$source" "$destination/"
-done
-EOF
+```bash
+sudo /opt/jable-downloader/venv/bin/python \
+  /opt/jable-downloader/migrate_media_layout.py --apply
 sudo systemctl start jable-downloader-web
 ```
 
-如果命令因同名目标停止，预检阶段不会移动任何文件；先人工核对提示的源文件与目标文件，再重新执行。不要使用强制覆盖参数。
+工具会同时整理 `media` 根目录以及已有的 `media/JAV`、`media/FC2` 平铺文件，并把同番号的视频、封面、字幕和 NFO 放入同一目录。任何目标已存在时，预检阶段就会整体停止，不会先移动一部分文件；请人工核对冲突，不要强制覆盖。
 
 Jellyfin/MetaTube 不需要改 Docker Compose，继续保留宿主机映射：
 
@@ -291,7 +271,7 @@ CentOS 7/8 恢复安装前 repo：
 bash <(curl -fsSL https://raw.githubusercontent.com/TonyStarkJr2021/jable-downloader-cli/main/uninstall.sh) --restore-repos
 ```
 
-卸载始终保留 `work`、`downloads`、`media/JAV`、`media/FC2` 及其中的媒体文件，也不会改动 qBittorrent、MoviePilot、Jellyfin、MetaTube、Docker、挂载点或防火墙。
+卸载始终保留 `work`、`downloads`、`media/JAV`、`media/FC2`、番号目录及其中的媒体文件，也不会改动 qBittorrent、MoviePilot、Jellyfin、MetaTube、Docker、挂载点或防火墙。
 
 ## 服务与配置
 
@@ -311,8 +291,8 @@ sudo systemctl restart jable-downloader-web
 | `/mnt/raid_hdd/AV/work` | 临时分片 |
 | `/mnt/raid_hdd/AV/downloads` | 合并后的待归档文件 |
 | `/mnt/raid_hdd/AV/media` | 媒体根目录及旧版未分类成品 |
-| `/mnt/raid_hdd/AV/media/JAV` | 普通 JAV 正式成品 |
-| `/mnt/raid_hdd/AV/media/FC2` | FC2 正式成品 |
+| `/mnt/raid_hdd/AV/media/JAV/番号` | 普通 JAV 独立番号目录与正式成品 |
+| `/mnt/raid_hdd/AV/media/FC2/番号` | FC2 独立番号目录与正式成品 |
 
 分类目录可在 `/etc/jable-downloader/config.json` 中通过 `jav_media_dir` 和 `fc2_media_dir` 单独覆盖。`media_dir` 继续作为 Web 媒体浏览与旧版兼容的共同根目录；若把分类目录设到根目录之外，Jable CLI 仍可归档和查重，但 Web 面板不会显示根目录之外的文件。
 
@@ -320,7 +300,7 @@ sudo systemctl restart jable-downloader-web
 
 ### Jellyfin 把多个 FC2 合并成同一影片的不同版本
 
-分类目录本身不要求每部影片必须再建一层文件夹，但 Jellyfin 官方对“电影”媒体库的推荐结构是一部电影一个目录。平铺文件在部分命名和识别组合下可能被自动归为多版本；遇到这种情况时，将影片整理为下面的结构最稳妥：
+Jellyfin 官方对“电影”媒体库的推荐结构是一部电影一个目录。v2.2.1 已将它设为默认归档结构：
 
 ```text
 /media/FC2/
@@ -330,7 +310,7 @@ sudo systemctl restart jable-downloader-web
     └── FC2-PPV-4968748.mp4
 ```
 
-如果继续使用平铺目录，可以在 Jellyfin 中执行“拆分版本”，但重新扫描或再次识别后仍可能重新合并。独立番号目录不是下载器的硬性要求，而是 Jellyfin 电影库的兼容性建议。参见 [Jellyfin Movies 文档](https://jellyfin.org/docs/general/server/media/movies/)。
+旧版平铺文件可以使用上面的迁移工具整理。如果继续平铺，可在 Jellyfin 中执行“拆分版本”，但重新扫描或再次识别后仍可能重新合并。参见 [Jellyfin Movies 文档](https://jellyfin.org/docs/general/server/media/movies/)。
 
 ### 页面打不开
 
