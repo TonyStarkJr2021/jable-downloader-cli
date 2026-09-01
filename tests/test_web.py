@@ -11,7 +11,7 @@ from jable_web.app import create_app
 from jable_web.auth import LoginLimiter, hash_password, verify_password
 from jable_web.media import parse_range, resolve_media
 from jable_web.setup_config import build_config, write_atomic
-from jable_web.tasks import DownloadTaskManager, safe_log_line
+from jable_web.tasks import DownloadTaskManager, TerminalLogParser, safe_log_line
 
 
 class DummyTaskManager:
@@ -64,6 +64,19 @@ class MediaTests(unittest.TestCase):
         line = "https://cdn.example/video.m3u8?token=secret"
         self.assertNotIn("secret", safe_log_line(line))
 
+    def test_terminal_parser_streams_carriage_return_progress(self):
+        parser = TerminalLogParser()
+        first = "下载进度 10%\r下载进".encode("utf-8")
+        second = "度 20%\r\n已合并\n".encode("utf-8")
+        self.assertEqual(parser.feed(first), [("下载进度 10%", True)])
+        self.assertEqual(
+            parser.feed(second),
+            [("下载进度 20%", False), ("已合并", False)],
+        )
+
+    def test_terminal_control_codes_are_removed(self):
+        self.assertEqual(safe_log_line("\x1b[32mDownloading 25%\x1b[0m"), "Downloading 25%")
+
     def test_task_manager_normalizes_fc2_and_routes_safe_detail_urls(self):
         process = mock.Mock()
         with (
@@ -76,6 +89,8 @@ class MediaTests(unittest.TestCase):
         self.assertEqual(
             popen.call_args.args[0], ["/usr/local/bin/n", "FC2-PPV-4968748"]
         )
+        self.assertFalse(popen.call_args.kwargs["text"])
+        self.assertEqual(popen.call_args.kwargs["env"]["PYTHONUNBUFFERED"], "1")
         self.assertEqual(manager.snapshot()["source"], "missav")
 
 
@@ -260,6 +275,7 @@ class FrontendRegressionTests(unittest.TestCase):
         self.assertIn("FC2 使用 MissAV", dashboard)
         self.assertIn("普通番号优先使用 Jable", dashboard)
         self.assertIn("log.scrollTop = log.scrollHeight", script)
+        self.assertIn("if (task.progress) visibleLogs.push(task.progress)", script)
         self.assertIn("clamp(26px, 3vw, 42px)", css)
 
 

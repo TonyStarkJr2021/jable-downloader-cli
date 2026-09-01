@@ -71,7 +71,7 @@ def create_app(
 
     app = FastAPI(
         title="Jable + MissAV Downloader Web",
-        version="2.1.0",
+        version="2.1.1",
         docs_url=None,
         redoc_url=None,
         openapi_url=None,
