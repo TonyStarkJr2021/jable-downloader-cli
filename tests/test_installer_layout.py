@@ -45,7 +45,12 @@ class InstallerPlatformTests(unittest.TestCase):
         self.assertNotIn("OWNER", INSTALLER)
         self.assertIn("bash <(curl -fsSL", README)
         self.assertNotIn("--repo https://github.com/TonyStarkJr2021", README)
+        self.assertIn("/main/update.sh)", README)
+        self.assertIn("/main/uninstall.sh)", README)
+        self.assertNotIn("从本地成品发布到 GitHub", README)
+        self.assertNotIn("gh release create", README)
 
 
 if __name__ == "__main__":
     unittest.main()
+
