@@ -5,6 +5,7 @@ from pathlib import Path
 INSTALLER = (Path(__file__).parents[1] / "install.sh").read_text(encoding="utf-8")
 UNINSTALLER = (Path(__file__).parents[1] / "uninstall.sh").read_text(encoding="utf-8")
 README = (Path(__file__).parents[1] / "README.md").read_text(encoding="utf-8")
+UPDATER = (Path(__file__).parents[1] / "update.sh").read_text(encoding="utf-8")
 
 
 class InstallerPlatformTests(unittest.TestCase):
@@ -37,6 +38,14 @@ class InstallerPlatformTests(unittest.TestCase):
         self.assertIn("linux-musl-x64", INSTALLER)
         self.assertIn("linux-musl-arm64", INSTALLER)
 
+    def test_web_install_update_and_uninstall_are_integrated(self):
+        self.assertIn("--web-port", INSTALLER)
+        self.assertIn("jable_web.setup_config", INSTALLER)
+        self.assertIn("jable-downloader-web.service", INSTALLER)
+        self.assertIn("jable-downloader-web.service", UPDATER)
+        self.assertIn("jable-downloader-web.service", UNINSTALLER)
+        self.assertIn("防火墙未被修改", INSTALLER)
+
     def test_public_repository_urls_are_release_ready(self):
         expected = "TonyStarkJr2021/jable-downloader-cli"
         self.assertIn(expected, README)
@@ -53,4 +62,3 @@ class InstallerPlatformTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

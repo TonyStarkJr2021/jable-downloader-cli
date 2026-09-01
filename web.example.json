@@ -1,0 +1,11 @@
+{
+  "host": "0.0.0.0",
+  "port": 28491,
+  "username": "jable_admin",
+  "password_hash": "scrypt$16384$8$1$replace_with_installer_generated_value",
+  "secure_cookie": false,
+  "session_timeout_seconds": 43200,
+  "login_max_attempts": 5,
+  "login_lockout_seconds": 900,
+  "command": "/usr/local/bin/n"
+}

@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>登录 · Jable Downloader</title>
+    <link rel="stylesheet" href="/static/app.css">
+  </head>
+  <body class="auth-page">
+    <main class="auth-card">
+      <div class="brand-mark" aria-hidden="true">JD</div>
+      <p class="eyebrow">JABLE DOWNLOADER</p>
+      <h1>欢迎回来</h1>
+      <p class="muted">登录后管理服务器下载任务与成品。</p>
+      {% if error %}<div class="alert" role="alert">{{ error }}</div>{% endif %}
+      <form action="/login" method="post" class="stack-form">
+        <input type="hidden" name="csrf_token" value="{{ login_csrf }}">
+        <label for="username">用户名</label>
+        <input id="username" name="username" autocomplete="username" required autofocus>
+        <label for="password">密码</label>
+        <input id="password" name="password" type="password" autocomplete="current-password" required>
+        <button type="submit" class="primary-button">登录控制台</button>
+      </form>
+      <p class="security-note">请勿在不可信网络中通过明文 HTTP 输入密码。</p>
+    </main>
+  </body>
+</html>

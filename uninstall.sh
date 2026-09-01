@@ -6,6 +6,7 @@ CONFIG_DIR="/etc/jable-downloader"
 STATE_DIR="/var/lib/jable-downloader"
 COMMAND_PATH="/usr/local/bin/n"
 N_M3U8DL_PATH="/usr/local/bin/N_m3u8DL-RE"
+WEB_SERVICE="/etc/systemd/system/jable-downloader-web.service"
 PURGE=false
 RESTORE_REPOS=false
 
@@ -27,11 +28,19 @@ N_M3U8DL_MANAGED=false
 COMMAND_BACKUP=""
 LEGACY_REPO_BACKUP=""
 if [[ -r "$CONFIG_DIR/source.env" ]]; then
-  # shellcheck disable=SC1090
+  # shellcheck disable=SC1090,SC1091
   source "$CONFIG_DIR/source.env"
   N_M3U8DL_MANAGED="${JABLE_N_M3U8DL_MANAGED:-false}"
   COMMAND_BACKUP="${JABLE_COMMAND_BACKUP:-}"
   LEGACY_REPO_BACKUP="${JABLE_LEGACY_REPO_BACKUP:-}"
+fi
+
+if [[ -d /run/systemd/system ]]; then
+  systemctl disable --now jable-downloader-web.service >/dev/null 2>&1 || true
+fi
+rm -f -- "$WEB_SERVICE"
+if [[ -d /run/systemd/system ]]; then
+  systemctl daemon-reload
 fi
 
 if [[ -f "$COMMAND_PATH" ]] && grep -q "Managed by jable-downloader" "$COMMAND_PATH"; then

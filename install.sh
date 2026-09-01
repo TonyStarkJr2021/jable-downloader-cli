@@ -25,6 +25,16 @@ OS_VERSION_ID=""
 OS_MAJOR=""
 ENABLE_EOL_REPOS=false
 LEGACY_REPO_BACKUP=""
+WEB_ENABLED=true
+WEB_HOST=""
+WEB_PORT=""
+WEB_USER=""
+WEB_PASSWORD=""
+WEB_HOST_EXPLICIT=false
+WEB_PORT_EXPLICIT=false
+WEB_USER_EXPLICIT=false
+WEB_PASSWORD_EXPLICIT=false
+WEB_SERVICE="/etc/systemd/system/jable-downloader-web.service"
 
 usage() {
   cat <<'EOF'
@@ -33,6 +43,11 @@ usage() {
   --data-root PATH   数据根目录（默认 /mnt/raid_hdd/AV）
   --repo URL         从该 Git 仓库安装；用于 curl | bash 场景
   --branch NAME      仓库分支（默认 main）
+  --web-host IP      Web 监听地址（默认 0.0.0.0）
+  --web-port PORT    指定 Web 端口（默认随机可用高位端口）
+  --web-user USER    指定 Web 用户名（默认随机生成）
+  --web-password PW  指定 Web 密码（默认随机生成，至少 12 位）
+  --no-web           只安装 CLI，不安装 Web 服务
   --enable-eol-repos 允许 CentOS 7/8 备份现有 repo 后切换到归档源
   -h, --help         显示帮助
 
@@ -45,6 +60,11 @@ while (($#)); do
     --data-root) DATA_ROOT="${2:?--data-root 需要路径}"; shift 2 ;;
     --repo) REPO_URL="${2:?--repo 需要 URL}"; shift 2 ;;
     --branch) REPO_BRANCH="${2:?--branch 需要名称}"; BRANCH_EXPLICIT=true; shift 2 ;;
+    --web-host) WEB_HOST="${2:?--web-host 需要 IP}"; WEB_HOST_EXPLICIT=true; shift 2 ;;
+    --web-port) WEB_PORT="${2:?--web-port 需要端口}"; WEB_PORT_EXPLICIT=true; shift 2 ;;
+    --web-user) WEB_USER="${2:?--web-user 需要用户名}"; WEB_USER_EXPLICIT=true; shift 2 ;;
+    --web-password) WEB_PASSWORD="${2:?--web-password 需要密码}"; WEB_PASSWORD_EXPLICIT=true; shift 2 ;;
+    --no-web) WEB_ENABLED=false; shift ;;
     --enable-eol-repos) ENABLE_EOL_REPOS=true; shift ;;
     -h|--help) usage; exit 0 ;;
     *) echo "未知选项：$1" >&2; usage >&2; exit 2 ;;
@@ -335,7 +355,7 @@ detect_platform
 if [[ -r "$CONFIG_DIR/source.env" ]]; then
   SAVED_REPO_URL="$REPO_URL"
   SAVED_REPO_BRANCH="$REPO_BRANCH"
-  # shellcheck disable=SC1090
+  # shellcheck disable=SC1090,SC1091
   source "$CONFIG_DIR/source.env"
   if [[ -n "$SAVED_REPO_URL" ]]; then
     REPO_URL="$SAVED_REPO_URL"
@@ -375,17 +395,17 @@ else
   SOURCE_DIR="$TEMP_DIR/source"
 fi
 
-for required in jable_downloader.py config.example.json requirements.txt bin/n update.sh uninstall.sh VERSION; do
+for required in jable_downloader.py config.example.json web.example.json requirements.txt bin/n update.sh uninstall.sh VERSION systemd/jable-downloader-web.service; do
   if [[ ! -f "$SOURCE_DIR/$required" ]]; then
     echo "安装源不完整，缺少：$required" >&2
     exit 1
   fi
 done
 
-echo "[1/6] 安装系统依赖..."
+echo "[1/7] 安装系统依赖..."
 install_system_dependencies
 
-echo "[2/6] 安装 N_m3u8DL-RE..."
+echo "[2/7] 安装 N_m3u8DL-RE..."
 if [[ -x "$N_M3U8DL_PATH" ]]; then
   echo "已存在，保留现有程序：$N_M3U8DL_PATH"
 else
@@ -434,17 +454,25 @@ PY
   INSTALL_N_M3U8DL=true
 fi
 
-echo "[3/6] 安装应用与 Python 环境..."
+echo "[3/7] 安装应用与 Python 环境..."
 install -d -m 0755 "$APP_DIR" "$CONFIG_DIR" "$STATE_DIR"
 install -m 0755 "$SOURCE_DIR/jable_downloader.py" "$APP_DIR/jable_downloader.py"
 install -m 0644 "$SOURCE_DIR/requirements.txt" "$APP_DIR/requirements.txt"
 install -m 0644 "$SOURCE_DIR/config.example.json" "$APP_DIR/config.example.json"
+install -m 0644 "$SOURCE_DIR/web.example.json" "$APP_DIR/web.example.json"
 install -m 0644 "$SOURCE_DIR/VERSION" "$APP_DIR/VERSION"
 install -m 0755 "$SOURCE_DIR/update.sh" "$APP_DIR/update.sh"
 install -m 0755 "$SOURCE_DIR/uninstall.sh" "$APP_DIR/uninstall.sh"
+if [[ -d /run/systemd/system && -f "$WEB_SERVICE" ]]; then
+  systemctl stop jable-downloader-web.service >/dev/null 2>&1 || true
+fi
+rm -rf -- "$APP_DIR/jable_web"
+cp -a "$SOURCE_DIR/jable_web" "$APP_DIR/jable_web"
+find "$APP_DIR/jable_web" -type d -exec chmod 0755 {} +
+find "$APP_DIR/jable_web" -type f -exec chmod 0644 {} +
 create_python_environment
 
-echo "[4/6] 创建或迁移配置..."
+echo "[4/7] 创建或迁移配置..."
 CONFIG_FILE="$CONFIG_DIR/config.json"
 LEGACY_CONFIG="$APP_DIR/config.json"
 if [[ ! -f "$CONFIG_FILE" && -f "$LEGACY_CONFIG" ]]; then
@@ -494,7 +522,7 @@ for directory in "${DATA_DIRS[@]}"; do
   install -d -m 0755 "$directory"
 done
 
-echo "[5/6] 创建全局命令 n..."
+echo "[5/7] 创建全局命令 n..."
 if [[ -e "$COMMAND_PATH" ]] && ! grep -q "Managed by jable-downloader" "$COMMAND_PATH" 2>/dev/null; then
   BACKUP="${COMMAND_PATH}.pre-jable.$(date +%Y%m%d%H%M%S)"
   cp -p "$COMMAND_PATH" "$BACKUP"
@@ -512,16 +540,71 @@ JABLE_LEGACY_REPO_BACKUP=$(printf '%q' "$LEGACY_REPO_BACKUP")
 EOF
 chmod 0600 "$CONFIG_DIR/source.env"
 
-echo "[6/6] 验证安装..."
-"$APP_DIR/venv/bin/python" -m py_compile "$APP_DIR/jable_downloader.py"
+echo "[6/7] 配置 Web 服务..."
+WEB_CONFIG="$CONFIG_DIR/web.json"
+WEB_PASSWORD_DISPLAY=""
+if [[ "$WEB_ENABLED" == true && ! -d /run/systemd/system ]]; then
+  echo "⚠️ 当前环境未运行 systemd，Web 服务已跳过；CLI 命令 n 仍可使用。"
+  WEB_ENABLED=false
+fi
+if [[ "$WEB_ENABLED" == false && -d /run/systemd/system && -f "$WEB_SERVICE" ]]; then
+  systemctl disable jable-downloader-web.service >/dev/null 2>&1 || true
+  rm -f -- "$WEB_SERVICE"
+  systemctl daemon-reload
+fi
+if [[ "$WEB_ENABLED" == true ]]; then
+  systemctl stop jable-downloader-web.service >/dev/null 2>&1 || true
+  WEB_ARGS=(--output "$WEB_CONFIG")
+  [[ "$WEB_HOST_EXPLICIT" == true ]] && WEB_ARGS+=(--host "$WEB_HOST")
+  [[ "$WEB_PORT_EXPLICIT" == true ]] && WEB_ARGS+=(--port "$WEB_PORT")
+  [[ "$WEB_USER_EXPLICIT" == true ]] && WEB_ARGS+=(--username "$WEB_USER")
+  [[ "$WEB_PASSWORD_EXPLICIT" == true ]] && WEB_ARGS+=(--password "$WEB_PASSWORD")
+  WEB_OUTPUT="$(
+    PYTHONPATH="$APP_DIR" "$APP_DIR/venv/bin/python" -m jable_web.setup_config "${WEB_ARGS[@]}"
+  )"
+  mapfile -t WEB_RESULT <<< "$WEB_OUTPUT"
+  for line in "${WEB_RESULT[@]}"; do
+    case "$line" in
+      JABLE_WEB_HOST=*) WEB_HOST="${line#*=}" ;;
+      JABLE_WEB_PORT=*) WEB_PORT="${line#*=}" ;;
+      JABLE_WEB_USER=*) WEB_USER="${line#*=}" ;;
+      JABLE_WEB_PASSWORD=*) WEB_PASSWORD_DISPLAY="${line#*=}" ;;
+    esac
+  done
+  chmod 0600 "$WEB_CONFIG"
+  install -m 0644 "$SOURCE_DIR/systemd/jable-downloader-web.service" "$WEB_SERVICE"
+  systemctl daemon-reload
+  systemctl enable --now jable-downloader-web.service
+fi
+
+echo "[7/7] 验证安装..."
+"$APP_DIR/venv/bin/python" -m py_compile "$APP_DIR/jable_downloader.py" "$APP_DIR"/jable_web/*.py
 test -x "$CHROMIUM_PATH"
 command -v ffprobe >/dev/null
 command -v xvfb-run >/dev/null
 "$APP_DIR/venv/bin/python" -c "from bs4 import BeautifulSoup; from playwright.sync_api import sync_playwright"
 test -x "$N_M3U8DL_PATH"
+if [[ "$WEB_ENABLED" == true ]]; then
+  systemctl is-active --quiet jable-downloader-web.service
+fi
 
 echo
 echo "✅ 安装完成"
 echo "配置文件：$CONFIG_FILE"
 echo "媒体目录：${DATA_DIRS[2]}"
 echo "现在可运行：n、n IPX-850、n ipx850 或 n \"IPX 850\""
+if [[ "$WEB_ENABLED" == true ]]; then
+  ACCESS_HOST="$WEB_HOST"
+  [[ "$ACCESS_HOST" == "0.0.0.0" ]] && ACCESS_HOST="服务器IP"
+  echo
+  echo "🌐 Web 地址：http://${ACCESS_HOST}:${WEB_PORT}"
+  echo "👤 用户名：$WEB_USER"
+  if [[ "$WEB_PASSWORD_DISPLAY" == "__PRESERVED__" ]]; then
+    echo "🔑 密码：保持原密码（系统不保存明文）"
+  else
+    echo "🔑 首次密码：$WEB_PASSWORD_DISPLAY"
+    echo "请立即妥善保存；该明文不会写入配置文件。"
+  fi
+  echo "防火墙未被修改；如无法访问，请手动放行 TCP ${WEB_PORT}。"
+  echo "当前为 HTTP。公网使用建议在前方配置 HTTPS 反向代理。"
+fi

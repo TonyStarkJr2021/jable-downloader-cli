@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="csrf-token" content="{{ csrf_token }}">
+    <title>Jable Downloader</title>
+    <link rel="stylesheet" href="/static/app.css">
+    <script src="/static/app.js" defer></script>
+  </head>
+  <body>
+    <header class="topbar">
+      <a class="brand" href="/" aria-label="Jable Downloader 首页">
+        <span class="brand-mark small" aria-hidden="true">JD</span>
+        <span>Jable Downloader</span>
+      </a>
+      <form action="/logout" method="post">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <button class="ghost-button" type="submit">退出 {{ username }}</button>
+      </form>
+    </header>
+
+    <main class="shell">
+      <section class="command-panel">
+        <div>
+          <p class="eyebrow">NEW DOWNLOAD</p>
+          <h1>输入番号，剩下的交给服务器</h1>
+          <p class="muted">成品始终保存在 RAID；需要时再通过浏览器复制到本地。</p>
+        </div>
+        <form id="download-form" class="download-form">
+          <label class="sr-only" for="code">番号</label>
+          <input id="code" name="code" placeholder="例如 IPX-850" autocomplete="off" required>
+          <button class="primary-button" type="submit">开始下载</button>
+        </form>
+        <div id="form-message" class="form-message" role="status" aria-live="polite"></div>
+      </section>
+
+      <section class="status-grid" aria-label="当前任务">
+        <article class="status-card">
+          <div class="status-heading">
+            <div>
+              <p class="eyebrow">CURRENT TASK</p>
+              <h2 id="task-code">暂无任务</h2>
+            </div>
+            <span id="task-state" class="status-pill idle">空闲</span>
+          </div>
+          <div class="progress-track" aria-hidden="true"><span id="progress-bar"></span></div>
+          <pre id="task-log" class="task-log" tabindex="0">等待新任务…</pre>
+        </article>
+
+        <article class="summary-card">
+          <p class="eyebrow">STORAGE</p>
+          <h2>服务器媒体库</h2>
+          <strong id="media-count">—</strong>
+          <span>个成品</span>
+          <p class="muted compact">下载到本地只会复制，不会移除服务器文件。</p>
+        </article>
+      </section>
+
+      <section class="library-section">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">MEDIA LIBRARY</p>
+            <h2>历史成品</h2>
+          </div>
+          <button id="refresh-media" class="ghost-button" type="button">刷新</button>
+        </div>
+        <div id="media-list" class="media-list" aria-live="polite">
+          <div class="empty-state">正在读取媒体库…</div>
+        </div>
+      </section>
+    </main>
+
+    <dialog id="media-dialog" class="media-dialog">
+      <button id="close-dialog" class="dialog-close" aria-label="关闭">×</button>
+      <p class="eyebrow">MEDIA DETAILS</p>
+      <h2 id="detail-name">媒体信息</h2>
+      <dl id="detail-grid" class="detail-grid"></dl>
+      <a id="download-link" class="primary-button download-link" href="#">下载到本地</a>
+      <p class="muted compact">浏览器会按你的下载设置选择本地保存位置，服务器原文件继续保留。</p>
+    </dialog>
+  </body>
+</html>

@@ -1,0 +1,28 @@
+[Unit]
+Description=Jable Downloader Web
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+WorkingDirectory=/opt/jable-downloader
+Environment=PYTHONUNBUFFERED=1
+Environment=JABLE_CONFIG_FILE=/etc/jable-downloader/config.json
+Environment=JABLE_WEB_CONFIG=/etc/jable-downloader/web.json
+ExecStart=/opt/jable-downloader/venv/bin/python -m jable_web.server
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+KillMode=control-group
+LimitNOFILE=65535
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+LockPersonality=true
+RestrictSUIDSGID=true
+
+[Install]
+WantedBy=multi-user.target
