@@ -59,6 +59,9 @@ class InstallerPlatformTests(unittest.TestCase):
             self.assertIn("hls_proxy.py", script)
             self.assertIn('config.setdefault("missav_site"', script)
             self.assertIn('config.setdefault("missav_hls_relay"', script)
+            self.assertIn('config.setdefault("javbus_fallback_enabled"', script)
+            self.assertIn('config.setdefault("javbus_site"', script)
+            self.assertIn('config.setdefault("javbus_timeout_seconds"', script)
         self.assertIn("curl-cffi", REQUIREMENTS)
         self.assertIn("FC2-PPV-1234567", README)
 
@@ -93,7 +96,7 @@ class InstallerPlatformTests(unittest.TestCase):
         self.assertIn("gh release upload", workflow)
 
     def test_release_version_is_consistent(self):
-        self.assertEqual(VERSION, "2.2.1")
+        self.assertEqual(VERSION, "2.3.0")
         self.assertIn(f'__version__ = "{VERSION}"', WEB_INIT)
         self.assertIn(f"## v{VERSION}", README)
         self.assertTrue(RELEASE_NOTES.is_file())

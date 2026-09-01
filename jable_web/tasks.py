@@ -9,9 +9,10 @@ import threading
 import time
 from collections import deque
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from jable_downloader import parse_download_input
+from jable_web.javbus import JavBusLookupError, lookup_javbus_magnets
 
 try:
     import pty
@@ -66,11 +67,25 @@ class TerminalLogParser:
 
 
 class DownloadTaskManager:
-    def __init__(self, command: str = "/usr/local/bin/n", max_log_lines: int = 600) -> None:
+    def __init__(
+        self,
+        command: str = "/usr/local/bin/n",
+        max_log_lines: int = 600,
+        magnet_lookup: Callable[[str], list[dict[str, Any]]] | None = None,
+        javbus_enabled: bool = True,
+        javbus_site: str = "https://www.javbus.com",
+        javbus_timeout_seconds: int = 15,
+    ) -> None:
         self.command = command
         self.max_log_lines = max_log_lines
         self._lock = threading.Lock()
         self._process: subprocess.Popen[str] | None = None
+        self.javbus_enabled = javbus_enabled
+        self._magnet_lookup = magnet_lookup or (
+            lambda code: lookup_javbus_magnets(
+                code, site=javbus_site, timeout_seconds=javbus_timeout_seconds
+            )
+        )
         self._state: dict[str, Any] = {
             "state": "idle",
             "code": None,
@@ -80,6 +95,8 @@ class DownloadTaskManager:
             "return_code": None,
             "progress": None,
             "logs": deque(maxlen=max_log_lines),
+            "magnets": [],
+            "magnet_lookup_error": None,
         }
 
     def start(self, raw_code: str) -> str:
@@ -92,7 +109,7 @@ class DownloadTaskManager:
             "missav": "MissAV",
         }
         with self._lock:
-            if self._state["state"] == "running":
+            if self._state["state"] in {"running", "searching"}:
                 raise TaskBusyError("已有下载任务正在运行")
             self._state = {
                 "state": "running",
@@ -106,6 +123,8 @@ class DownloadTaskManager:
                     [f"准备下载 {code}", f"来源：{source_labels[request.source]}"],
                     maxlen=self.max_log_lines,
                 ),
+                "magnets": [],
+                "magnet_lookup_error": None,
             }
             master_fd: int | None = None
             slave_fd: int | None = None
@@ -184,14 +203,54 @@ class DownloadTaskManager:
             if master_fd is not None:
                 os.close(master_fd)
         return_code = process.wait()
+        should_lookup = False
         with self._lock:
             self._state["progress"] = None
             self._state["return_code"] = return_code
             self._state["finished_at"] = time.time()
-            self._state["state"] = "completed" if return_code == 0 else "failed"
-            self._state["logs"].append(
-                "任务完成" if return_code == 0 else f"任务失败（退出码 {return_code}）"
+            should_lookup = (
+                return_code == 3
+                and self._state.get("source") == "auto"
+                and self.javbus_enabled
             )
+            self._state["state"] = (
+                "completed" if return_code == 0 else "searching" if should_lookup else "failed"
+            )
+            self._state["logs"].append(
+                "任务完成"
+                if return_code == 0
+                else "直链来源均未找到，正在查询 JavBus 磁力…"
+                if should_lookup
+                else f"任务失败（退出码 {return_code}）"
+            )
+        if not should_lookup:
+            return
+
+        try:
+            magnets = self._magnet_lookup(str(self._state["code"]))
+        except JavBusLookupError as exc:
+            with self._lock:
+                self._state["state"] = "failed"
+                self._state["magnet_lookup_error"] = str(exc)
+                self._state["logs"].append(str(exc))
+            return
+        except Exception:
+            with self._lock:
+                self._state["state"] = "failed"
+                self._state["magnet_lookup_error"] = "JavBus 查询暂时不可用"
+                self._state["logs"].append("JavBus 查询暂时不可用")
+            return
+
+        with self._lock:
+            self._state["magnets"] = magnets
+            if magnets:
+                self._state["state"] = "alternatives"
+                self._state["logs"].append(
+                    f"JavBus 找到 {len(magnets)} 条磁力，已在页面推荐最合适的资源"
+                )
+            else:
+                self._state["state"] = "failed"
+                self._state["logs"].append("JavBus 也没有找到可用磁力")
 
 
 def command_exists(command: str) -> bool:

@@ -35,7 +35,7 @@
           <input id="code" name="code" placeholder="IPX-850、FC2-PPV-1234567 或详情页链接" autocomplete="off" required>
           <button class="primary-button" type="submit">开始下载</button>
         </form>
-        <p class="source-help">自动识别来源：FC2 使用 MissAV；普通番号优先使用 Jable，未找到时自动转到 MissAV。</p>
+        <p class="source-help">自动识别来源：FC2 使用 MissAV；普通番号优先使用 Jable，再转到 MissAV；两者都没有时显示 JavBus 推荐磁链。</p>
         <div id="form-message" class="form-message" role="status" aria-live="polite"></div>
       </section>
 
@@ -59,6 +59,18 @@
           <span>个成品</span>
           <p class="muted compact">下载到本地只会复制，不会移除服务器文件。</p>
         </article>
+      </section>
+
+      <section id="magnet-section" class="magnet-section" aria-live="polite" hidden>
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">JAVBUS FALLBACK</p>
+            <h2>找到可选磁力资源</h2>
+          </div>
+          <span class="status-pill alternatives">手动下载</span>
+        </div>
+        <p class="muted magnet-help">Jable 和 MissAV 均未找到直链。已按高清中字、高清、字幕及分享日期排序；复制后请使用你自己的下载工具，并确认你有权获取相应内容。</p>
+        <div id="magnet-list" class="magnet-list"></div>
       </section>
 
       <section class="library-section">

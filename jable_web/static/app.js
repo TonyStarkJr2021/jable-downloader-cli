@@ -1,7 +1,7 @@
 const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || "";
 const form = document.querySelector("#download-form");
 const formMessage = document.querySelector("#form-message");
-const stateLabels = { idle: "空闲", running: "运行中", completed: "已完成", failed: "失败" };
+const stateLabels = { idle: "空闲", running: "运行中", searching: "搜索磁链", alternatives: "发现磁链", completed: "已完成", failed: "失败" };
 
 function formatBytes(value) {
   if (!Number.isFinite(value)) return "—";
@@ -21,6 +21,80 @@ function formatDate(timestamp) {
 
 function mediaUrl(prefix, filename) {
   return `${prefix}/${filename.split("/").map(encodeURIComponent).join("/")}`;
+}
+
+async function copyText(value) {
+  if (navigator.clipboard && window.isSecureContext) {
+    await navigator.clipboard.writeText(value);
+    return;
+  }
+  const textarea = document.createElement("textarea");
+  textarea.value = value;
+  textarea.setAttribute("readonly", "");
+  textarea.style.position = "fixed";
+  textarea.style.opacity = "0";
+  document.body.appendChild(textarea);
+  textarea.select();
+  const copied = document.execCommand("copy");
+  textarea.remove();
+  if (!copied) throw new Error("浏览器未允许复制");
+}
+
+function renderMagnets(task) {
+  const section = document.querySelector("#magnet-section");
+  const container = document.querySelector("#magnet-list");
+  const items = Array.isArray(task.magnets) ? task.magnets : [];
+  if (!items.length) {
+    section.hidden = true;
+    container.replaceChildren();
+    return;
+  }
+  section.hidden = false;
+  container.replaceChildren(...items.map((item, index) => {
+    const row = document.createElement("article");
+    row.className = `magnet-row${index === 0 ? " recommended" : ""}`;
+
+    const main = document.createElement("div");
+    main.className = "magnet-main";
+    const heading = document.createElement("div");
+    heading.className = "magnet-heading";
+    const title = document.createElement("strong");
+    title.textContent = item.title || task.code;
+    heading.appendChild(title);
+    if (index === 0) {
+      const recommended = document.createElement("span");
+      recommended.className = "recommend-badge";
+      recommended.textContent = "推荐";
+      heading.appendChild(recommended);
+    }
+
+    const tags = document.createElement("div");
+    tags.className = "magnet-tags";
+    if (item.is_hd) tags.appendChild(Object.assign(document.createElement("span"), { textContent: "高清" }));
+    if (item.has_subtitle) tags.appendChild(Object.assign(document.createElement("span"), { textContent: "中文字幕" }));
+    const meta = document.createElement("span");
+    meta.className = "magnet-meta";
+    meta.textContent = `${item.size || "大小未知"} · 分享日期 ${item.share_date || "未知"}`;
+    tags.appendChild(meta);
+    main.append(heading, tags);
+
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = index === 0 ? "primary-button copy-magnet" : "ghost-button copy-magnet";
+    button.textContent = "复制磁力链接";
+    button.addEventListener("click", async () => {
+      const original = button.textContent;
+      try {
+        await copyText(item.magnet);
+        button.textContent = "已复制";
+      } catch (error) {
+        button.textContent = error.message;
+      }
+      window.setTimeout(() => { button.textContent = original; }, 1800);
+    });
+    row.append(main, button);
+    return row;
+  }));
 }
 
 async function requestJson(url, options = {}) {
@@ -43,7 +117,8 @@ async function refreshStatus() {
     const badge = document.querySelector("#task-state");
     badge.textContent = stateLabels[state] || state;
     badge.className = `status-pill ${state}`;
-    document.querySelector("#progress-bar").className = state === "running" ? "running" : state;
+    document.querySelector("#progress-bar").className = ["running", "searching"].includes(state) ? "running" : state;
+    renderMagnets(task);
     const log = document.querySelector("#task-log");
     const visibleLogs = task.logs?.length ? [...task.logs] : [];
     if (task.progress) visibleLogs.push(task.progress);

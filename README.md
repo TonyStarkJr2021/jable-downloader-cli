@@ -1,6 +1,6 @@
 # Jable + MissAV Downloader
 
-带登录保护的 Jable / MissAV 自动下载面板：输入番号或详情页链接，服务器完成来源识别、HLS 捕获、下载合并与 JAV / FC2 分类归档，同时保留全局命令 `n`。
+带登录保护的 Jable / MissAV 自动下载面板：输入番号或详情页链接，服务器完成来源识别、HLS 捕获、下载合并与 JAV / FC2 分类归档；直链来源均无结果时，可在 Web 页面查看 JavBus 推荐磁链，同时保留全局命令 `n`。
 
 [![Release](https://img.shields.io/github/v/release/TonyStarkJr2021/jable-downloader-cli?display_name=tag)](https://github.com/TonyStarkJr2021/jable-downloader-cli/releases/latest)
 [![CI](https://github.com/TonyStarkJr2021/jable-downloader-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/TonyStarkJr2021/jable-downloader-cli/actions/workflows/ci.yml)
@@ -13,30 +13,24 @@
 
 > 仅用于你有权访问和下载的内容。本项目不绕过 DRM、付费墙、验证码或访问控制。
 
-## v2.2.1
+## v2.3.0
 
-- 普通 JAV 自动归档到 `media/JAV/番号/番号.mp4`，FC2 自动归档到 `media/FC2/番号/番号.mp4`。
-- 每部影片使用独立番号目录，避免 Jellyfin 将多个 FC2 误合并为同一影片的不同版本。
-- Web 媒体库递归显示分类和已有成品，并继续兼容升级前的根目录文件。
-- 升级时不擅自移动旧媒体；内置迁移工具先完整预检目标，确认后才执行且绝不覆盖同名文件。
-- 更新前备份应用与配置；Web 账号、端口、Chromium profile、Jellyfin 和 MetaTube 部署保持不变。
+- 普通番号在 Jable 与 MissAV 均未找到直链时，Web 页面自动查询 JavBus 并展示可复制的磁力链接。
+- 推荐顺序依次为“高清中文字幕、高清、中文字幕、其他”，同一组内优先分享日期较新、文件较大的资源。
+- 只展示并复制磁力链接，不内置 BT 下载、不要求 qBittorrent，也不会自动开始磁力下载。
+- 仅接受 JavBus 官方 HTTPS 域名、匹配当前番号且包含有效 BTIH 的磁链，最多展示 30 条。
+- 一键更新自动补齐 JavBus 配置并保留既有账号、端口、媒体、Jellyfin、MetaTube 与独立番号目录结构。
 
 ## 工作流程
 
 ```text
 番号或详情页
-    │
-    ├── 普通 JAV：Jable 优先，MissAV 回退
-    └── FC2：MissAV
-            │
-            ▼
-     捕获公开 HLS / M3U8
-            │
-            ▼
- N_m3u8DL-RE + FFmpeg 合并
-            │
-            ├── media/JAV/IPX-850/IPX-850.mp4
-            └── media/FC2/FC2-PPV-1234567/FC2-PPV-1234567.mp4
+├── 普通 JAV
+│   ├── Jable → MissAV 找到直链 → 捕获公开 HLS / M3U8
+│   │   └── N_m3u8DL-RE + FFmpeg → media/JAV/番号/番号.mp4
+│   └── 两者均无直链 → JavBus 推荐磁链（手动复制）
+└── FC2 → MissAV → 捕获公开 HLS / M3U8
+    └── N_m3u8DL-RE + FFmpeg → media/FC2/番号/番号.mp4
 ```
 
 ## 功能
@@ -45,6 +39,8 @@
 - 首次安装自动生成随机可用端口、随机用户名和强密码
 - 输入 `IPX-850`、`ipx850`、`FC2-PPV-1234567` 或详情页链接，自动标准化并查重
 - 自动识别来源：FC2 使用 MissAV；普通番号优先使用 Jable，未找到时转到 MissAV
+- 普通番号的两个直链来源均无结果时，在 Web 页面按画质、字幕、分享日期和大小推荐 JavBus 磁链
+- 磁链只供手动复制到用户自己的下载工具，项目不会自动提交或下载 BT 任务
 - 实时查看任务状态和运行日志，同一时间只运行一个下载任务
 - 自动分类归档：普通 JAV 写入 `media/JAV/番号`，FC2 写入 `media/FC2/番号`
 - 递归浏览服务器媒体库，兼容升级前仍位于 `media` 根目录的成品
@@ -149,12 +145,14 @@ https://missav.ai/en/fc2-ppv-1234567
 
 - FC2 番号直接使用 MissAV；
 - 普通番号先搜索 Jable，未找到时自动转到 MissAV；
+- 普通番号在 Jable 和 MissAV 均无直链时，Web 页面显示 JavBus 推荐磁链；
 - 详情页链接按域名直接选择 Jable 或 MissAV；
 - 不支持其他网站链接，也不会请求链接中指定的任意服务器。
 
 下载完成后：
 
 - 普通 JAV 保存在 `media/JAV/番号`，FC2 保存在 `media/FC2/番号`；
+- 如果出现“找到可选磁力资源”，可复制推荐项或其他候选项到你自己的下载工具；
 - 点击“下载到本地”，由浏览器按自身下载设置选择电脑保存位置；
 - 本地下载是复制，服务器文件不会被移动或删除；
 - 如果同番号已存在，任务会快速结束，可直接从媒体库下载现有文件。
@@ -192,7 +190,9 @@ bash <(curl -fsSL https://raw.githubusercontent.com/TonyStarkJr2021/jable-downlo
 
 完成一次 v2 升级后，后续版本也可以运行 `sudo /opt/jable-downloader/update.sh`。更新会保留 Web 账号、端口、下载配置、Chromium profile 和全部媒体；旧程序与更新前配置备份在 `/opt/jable-downloader/backups/`。
 
-从 v2.1.1 或 v2.2.0 升级到 v2.2.1 时，更新器会保留配置与现有媒体，并安装安全迁移工具。新下载立即使用独立番号目录；旧的根目录或分类目录平铺文件仍可查重和浏览，按下节确认后再迁移。
+从 v2.2.1 升级到 v2.3.0 时，更新器会保留配置、账号、端口、Chromium profile 和全部媒体，并自动补齐 JavBus 回退配置。不会安装或控制 qBittorrent，也不会修改 Jellyfin、MetaTube、Docker、挂载点或外部 `update-media` 命令。
+
+从 v2.1.1 或 v2.2.0 升级时，更新器仍会安装安全迁移工具。新下载立即使用独立番号目录；旧的根目录或分类目录平铺文件仍可查重和浏览，按下节确认后再迁移。
 
 ## 从 v2.1.1 / v2.2.0 迁移现有媒体与 Jellyfin
 
@@ -295,6 +295,8 @@ sudo systemctl restart jable-downloader-web
 | `/mnt/raid_hdd/AV/media/FC2/番号` | FC2 独立番号目录与正式成品 |
 
 分类目录可在 `/etc/jable-downloader/config.json` 中通过 `jav_media_dir` 和 `fc2_media_dir` 单独覆盖。`media_dir` 继续作为 Web 媒体浏览与旧版兼容的共同根目录；若把分类目录设到根目录之外，Jable CLI 仍可归档和查重，但 Web 面板不会显示根目录之外的文件。
+
+JavBus 磁链回退默认启用，可通过 `javbus_fallback_enabled` 关闭；`javbus_site` 仅接受 JavBus 官方 HTTPS 域名，`javbus_timeout_seconds` 控制单次查询超时。此回退只在普通番号的 Jable 与 MissAV 都明确无结果后触发，不会影响已有下载流程或媒体目录。
 
 ## 常见问题
 

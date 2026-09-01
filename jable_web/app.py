@@ -81,7 +81,12 @@ def create_app(
     app.mount("/static", StaticFiles(directory=str(PACKAGE_DIR / "static")), name="static")
     app.state.sessions = SessionStore(session_timeout)
     app.state.limiter = LoginLimiter(max_attempts, lockout_seconds)
-    app.state.task_manager = task_manager or DownloadTaskManager(command)
+    app.state.task_manager = task_manager or DownloadTaskManager(
+        command,
+        javbus_enabled=bool(cli_config.get("javbus_fallback_enabled", True)),
+        javbus_site=str(cli_config.get("javbus_site", "https://www.javbus.com")),
+        javbus_timeout_seconds=int(cli_config.get("javbus_timeout_seconds", 15)),
+    )
     app.state.media_dir = media_dir
     app.state.username = username
     app.state.password_hash = password_hash
@@ -283,7 +288,7 @@ def create_app(
             raise HTTPException(status_code=400, detail="请输入有效端口") from exc
         if not 1024 <= new_port <= 65535:
             raise HTTPException(status_code=400, detail="端口必须在 1024–65535 之间")
-        if app.state.task_manager.snapshot().get("state") == "running":
+        if app.state.task_manager.snapshot().get("state") in {"running", "searching"}:
             raise HTTPException(status_code=409, detail="下载任务运行中，暂时不能更换端口")
         if new_port == app.state.web_port:
             return {"message": "端口没有变化", "restart": False}

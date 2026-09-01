@@ -191,6 +191,9 @@ def load_config(path: Path | None = None) -> dict[str, Any]:
     config.setdefault("missav_m3u8_preferred_domains", ["surrit.com"])
     config.setdefault("missav_allow_m3u8_fallback", True)
     config.setdefault("missav_hls_relay", True)
+    config.setdefault("javbus_fallback_enabled", True)
+    config.setdefault("javbus_site", "https://www.javbus.com")
+    config.setdefault("javbus_timeout_seconds", 15)
     media_root = Path(str(config["media_dir"]))
     config.setdefault("jav_media_dir", str(media_root / "JAV"))
     config.setdefault("fc2_media_dir", str(media_root / "FC2"))
@@ -677,14 +680,17 @@ def capture_stream(request: DownloadInput, config: dict[str, Any]) -> CapturedSt
     else:
         sources = ["jable", "missav"]
     failures: list[str] = []
+    failure_codes: list[int] = []
     for source in sources:
         try:
             return capture_from_provider(request, source, config)
         except AppError as exc:
             failures.append(str(exc))
+            failure_codes.append(exc.exit_code)
             if source != sources[-1]:
                 print(f"⚠️ {exc}，自动切换到 MissAV...\n")
-    raise AppError("；".join(failures), 4)
+    exit_code = 3 if failure_codes and all(code == 3 for code in failure_codes) else 4
+    raise AppError("；".join(failures), exit_code)
 
 
 def capture_m3u8(code: str, config: dict[str, Any]) -> str:

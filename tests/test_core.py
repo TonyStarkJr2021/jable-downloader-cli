@@ -8,16 +8,23 @@ from pathlib import Path
 from unittest import mock
 
 
-# Unit tests exercise the pure/local behavior without starting a browser.
-bs4 = types.ModuleType("bs4")
-bs4.BeautifulSoup = object
-sys.modules.setdefault("bs4", bs4)
-playwright = types.ModuleType("playwright")
-playwright_sync = types.ModuleType("playwright.sync_api")
-playwright_sync.TimeoutError = TimeoutError
-playwright_sync.sync_playwright = lambda: None
-sys.modules.setdefault("playwright", playwright)
-sys.modules.setdefault("playwright.sync_api", playwright_sync)
+# Unit tests exercise the pure/local behavior without starting a browser. Keep
+# lightweight fallbacks only for environments where optional packages are absent.
+try:
+    import bs4  # noqa: F401
+except ImportError:
+    bs4 = types.ModuleType("bs4")
+    bs4.BeautifulSoup = object
+    sys.modules["bs4"] = bs4
+try:
+    import playwright.sync_api  # noqa: F401
+except ImportError:
+    playwright = types.ModuleType("playwright")
+    playwright_sync = types.ModuleType("playwright.sync_api")
+    playwright_sync.TimeoutError = TimeoutError
+    playwright_sync.sync_playwright = lambda: None
+    sys.modules["playwright"] = playwright
+    sys.modules["playwright.sync_api"] = playwright_sync
 
 MODULE_PATH = Path(__file__).parents[1] / "jable_downloader.py"
 SPEC = importlib.util.spec_from_file_location("jable_downloader", MODULE_PATH)
@@ -105,6 +112,22 @@ class NormalizeCodeTests(unittest.TestCase):
         self.assertEqual(
             [call.args[1] for call in provider.call_args_list], ["jable", "missav"]
         )
+
+    def test_all_not_found_preserves_distinct_exit_code_for_web_fallback(self):
+        request = MODULE.parse_download_input("IPX-850")
+
+        def unavailable(_request, source, _config):
+            raise MODULE.AppError(f"{source.upper()} 没找到 IPX-850", 3)
+
+        with (
+            mock.patch.object(
+                MODULE, "capture_from_provider", side_effect=unavailable
+            ),
+            mock.patch("builtins.print"),
+        ):
+            with self.assertRaises(MODULE.AppError) as raised:
+                MODULE.capture_stream(request, {})
+        self.assertEqual(raised.exception.exit_code, 3)
 
 
 class MissAVStaticCaptureTests(unittest.TestCase):
@@ -269,6 +292,8 @@ class LocalFileTests(unittest.TestCase):
             self.assertEqual(config["jable_site"], "https://jable.tv")
             self.assertEqual(config["missav_site"], "https://missav.ai")
             self.assertTrue(config["missav_hls_relay"])
+            self.assertTrue(config["javbus_fallback_enabled"])
+            self.assertEqual(config["javbus_site"], "https://www.javbus.com")
             self.assertEqual(Path(config["jav_media_dir"]), Path("/tmp/media") / "JAV")
             self.assertEqual(Path(config["fc2_media_dir"]), Path("/tmp/media") / "FC2")
 
