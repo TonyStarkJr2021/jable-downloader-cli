@@ -8,6 +8,8 @@ README = (Path(__file__).parents[1] / "README.md").read_text(encoding="utf-8")
 UPDATER = (Path(__file__).parents[1] / "update.sh").read_text(encoding="utf-8")
 SERVICE = (Path(__file__).parents[1] / "systemd" / "jable-downloader-web.service").read_text(encoding="utf-8")
 REQUIREMENTS = (Path(__file__).parents[1] / "requirements.txt").read_text(encoding="utf-8")
+PREVIEW = Path(__file__).parents[1] / "docs" / "preview.jpg"
+RELEASE_WORKFLOW = Path(__file__).parents[1] / ".github" / "workflows" / "release.yml"
 
 
 class InstallerPlatformTests(unittest.TestCase):
@@ -76,6 +78,15 @@ class InstallerPlatformTests(unittest.TestCase):
         self.assertIn("/main/uninstall.sh)", README)
         self.assertNotIn("从本地成品发布到 GitHub", README)
         self.assertNotIn("gh release create", README)
+
+    def test_repository_presentation_and_release_assets_are_present(self):
+        self.assertIn("docs/preview.jpg", README)
+        self.assertIn("actions/workflows/ci.yml/badge.svg", README)
+        self.assertTrue(PREVIEW.is_file())
+        self.assertTrue(PREVIEW.read_bytes().startswith(b"\xff\xd8\xff"))
+        workflow = RELEASE_WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn("git archive --format=zip", workflow)
+        self.assertIn("gh release upload", workflow)
 
 
 if __name__ == "__main__":

@@ -1,8 +1,42 @@
 # Jable + MissAV Downloader
 
-带登录保护的 Jable/MissAV 下载面板，同时保留全局命令 `n`。输入番号或详情页链接后，服务器自动识别来源、捕获 M3U8、下载、合并并归档；成品始终保留在服务器，也可以通过浏览器复制到本地电脑。
+带登录保护的 Jable / MissAV 自动下载面板：输入番号或详情页链接，服务器完成来源识别、HLS 捕获、下载合并与 JAV / FC2 分类归档，同时保留全局命令 `n`。
+
+[![Release](https://img.shields.io/github/v/release/TonyStarkJr2021/jable-downloader-cli?display_name=tag)](https://github.com/TonyStarkJr2021/jable-downloader-cli/releases/latest)
+[![CI](https://github.com/TonyStarkJr2021/jable-downloader-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/TonyStarkJr2021/jable-downloader-cli/actions/workflows/ci.yml)
+[![License](https://img.shields.io/github/license/TonyStarkJr2021/jable-downloader-cli)](LICENSE)
+[![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+
+[下载最新版](https://github.com/TonyStarkJr2021/jable-downloader-cli/releases/latest) · [一键安装](#一键安装) · [一键更新](#一键更新) · [使用说明](#使用) · [Jellyfin 迁移](#从-v211-迁移现有媒体与-jellyfin)
+
+![Jable Downloader Web 控制台预览](docs/preview.jpg)
 
 > 仅用于你有权访问和下载的内容。本项目不绕过 DRM、付费墙、验证码或访问控制。
+
+## v2.2.0
+
+- 普通 JAV 自动归档到 `media/JAV`，FC2 自动归档到 `media/FC2`。
+- Web 媒体库递归显示分类和已有成品，并继续兼容升级前的根目录文件。
+- v2.1.1 升级时只补齐配置和创建目录，不自动移动、覆盖或删除现有媒体。
+- 更新前备份应用与配置；Web 账号、端口、Chromium profile、Jellyfin 和 MetaTube 部署保持不变。
+
+## 工作流程
+
+```text
+番号或详情页
+    │
+    ├── 普通 JAV：Jable 优先，MissAV 回退
+    └── FC2：MissAV
+            │
+            ▼
+     捕获公开 HLS / M3U8
+            │
+            ▼
+ N_m3u8DL-RE + FFmpeg 合并
+            │
+            ├── media/JAV
+            └── media/FC2
+```
 
 ## 功能
 
