@@ -54,14 +54,14 @@ if [[ -z "$SOURCE_DIR" ]]; then
   SOURCE_DIR="$TEMP_DIR/source"
 fi
 
-for required in jable_downloader.py config.example.json web.example.json requirements.txt bin/n update.sh uninstall.sh VERSION systemd/jable-downloader-web.service; do
+for required in jable_downloader.py hls_proxy.py config.example.json web.example.json requirements.txt bin/n update.sh uninstall.sh VERSION systemd/jable-downloader-web.service; do
   [[ -f "$SOURCE_DIR/$required" ]] || { echo "更新源缺少：$required" >&2; exit 1; }
 done
 [[ -d "$APP_DIR/venv" ]] || { echo "尚未安装，请先运行 install.sh。" >&2; exit 1; }
 
 BACKUP_DIR="$APP_DIR/backups/$(date +%Y%m%d%H%M%S)"
 install -d -m 0700 "$BACKUP_DIR"
-for file in jable_downloader.py requirements.txt VERSION; do
+for file in jable_downloader.py hls_proxy.py requirements.txt VERSION; do
   [[ -f "$APP_DIR/$file" ]] && cp -p "$APP_DIR/$file" "$BACKUP_DIR/$file"
 done
 [[ -d "$APP_DIR/jable_web" ]] && cp -a "$APP_DIR/jable_web" "$BACKUP_DIR/jable_web"
@@ -70,6 +70,7 @@ if [[ -f "$COMMAND_PATH" ]] && grep -q "Managed by jable-downloader" "$COMMAND_P
 fi
 
 install -m 0755 "$SOURCE_DIR/jable_downloader.py" "$APP_DIR/jable_downloader.py"
+install -m 0644 "$SOURCE_DIR/hls_proxy.py" "$APP_DIR/hls_proxy.py"
 install -m 0644 "$SOURCE_DIR/requirements.txt" "$APP_DIR/requirements.txt"
 install -m 0644 "$SOURCE_DIR/config.example.json" "$APP_DIR/config.example.json"
 install -m 0644 "$SOURCE_DIR/web.example.json" "$APP_DIR/web.example.json"
@@ -89,7 +90,24 @@ else
   echo "⚠️ 当前 n 命令不由本项目管理，未覆盖：$COMMAND_PATH"
 fi
 "$APP_DIR/venv/bin/python" -m pip install --disable-pip-version-check -r "$APP_DIR/requirements.txt"
-"$APP_DIR/venv/bin/python" -m py_compile "$APP_DIR/jable_downloader.py" "$APP_DIR"/jable_web/*.py
+"$APP_DIR/venv/bin/python" - "$CONFIG_DIR/config.json" <<'PY'
+import json, sys
+path = sys.argv[1]
+with open(path, encoding="utf-8") as handle:
+    config = json.load(handle)
+config.setdefault("jable_site", config.get("site", "https://jable.tv"))
+config.setdefault("jable_m3u8_preferred_domains", [config.get("m3u8_preferred_domain", "mushroomtrack.com")])
+config.setdefault("missav_site", "https://missav.ai")
+config.setdefault("missav_language", "en")
+config.setdefault("missav_m3u8_preferred_domains", ["surrit.com"])
+config.setdefault("missav_allow_m3u8_fallback", True)
+config.setdefault("missav_hls_relay", True)
+with open(path, "w", encoding="utf-8") as handle:
+    json.dump(config, handle, ensure_ascii=False, indent=2)
+    handle.write("\n")
+PY
+chmod 0600 "$CONFIG_DIR/config.json"
+"$APP_DIR/venv/bin/python" -m py_compile "$APP_DIR/jable_downloader.py" "$APP_DIR/hls_proxy.py" "$APP_DIR"/jable_web/*.py
 
 WEB_PASSWORD_DISPLAY=""
 if [[ -d /run/systemd/system ]]; then

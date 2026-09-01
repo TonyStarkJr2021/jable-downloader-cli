@@ -11,7 +11,7 @@ from jable_web.app import create_app
 from jable_web.auth import LoginLimiter, hash_password, verify_password
 from jable_web.media import parse_range, resolve_media
 from jable_web.setup_config import build_config, write_atomic
-from jable_web.tasks import safe_log_line
+from jable_web.tasks import DownloadTaskManager, safe_log_line
 
 
 class DummyTaskManager:
@@ -63,6 +63,20 @@ class MediaTests(unittest.TestCase):
     def test_signed_m3u8_is_redacted_from_web_log(self):
         line = "https://cdn.example/video.m3u8?token=secret"
         self.assertNotIn("secret", safe_log_line(line))
+
+    def test_task_manager_normalizes_fc2_and_routes_safe_detail_urls(self):
+        process = mock.Mock()
+        with (
+            mock.patch("jable_web.tasks.subprocess.Popen", return_value=process) as popen,
+            mock.patch("jable_web.tasks.threading.Thread.start"),
+        ):
+            manager = DownloadTaskManager("/usr/local/bin/n")
+            code = manager.start("fc2ppv4968748")
+        self.assertEqual(code, "FC2-PPV-4968748")
+        self.assertEqual(
+            popen.call_args.args[0], ["/usr/local/bin/n", "FC2-PPV-4968748"]
+        )
+        self.assertEqual(manager.snapshot()["source"], "missav")
 
 
 class SetupConfigTests(unittest.TestCase):
@@ -243,6 +257,8 @@ class FrontendRegressionTests(unittest.TestCase):
         css = (root / "static" / "app.css").read_text(encoding="utf-8")
         self.assertIn("<h2>已完成</h2>", dashboard)
         self.assertIn("点击对应项目右侧的“查看”", dashboard)
+        self.assertIn("FC2 使用 MissAV", dashboard)
+        self.assertIn("普通番号优先使用 Jable", dashboard)
         self.assertIn("log.scrollTop = log.scrollHeight", script)
         self.assertIn("clamp(26px, 3vw, 42px)", css)
 

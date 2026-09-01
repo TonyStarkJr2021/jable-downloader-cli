@@ -1,6 +1,6 @@
-# Jable Downloader
+# Jable + MissAV Downloader
 
-带登录保护的 Jable 下载面板，同时保留全局命令 `n`。输入番号后，服务器自动搜索、捕获 M3U8、下载、合并并归档；成品始终保留在服务器，也可以通过浏览器复制到本地电脑。
+带登录保护的 Jable/MissAV 下载面板，同时保留全局命令 `n`。输入番号或详情页链接后，服务器自动识别来源、捕获 M3U8、下载、合并并归档；成品始终保留在服务器，也可以通过浏览器复制到本地电脑。
 
 > 仅用于你有权访问和下载的内容。本项目不绕过 DRM、付费墙、验证码或访问控制。
 
@@ -8,13 +8,15 @@
 
 - 浏览器访问 `http://服务器IP:端口`，用户名和密码登录
 - 首次安装自动生成随机可用端口、随机用户名和强密码
-- 输入 `IPX-850`、`ipx850` 或 `IPX 850`，自动标准化并查重
+- 输入 `IPX-850`、`ipx850`、`FC2-PPV-1234567` 或详情页链接，自动标准化并查重
+- 自动识别来源：FC2 使用 MissAV；普通番号优先使用 Jable，未找到时转到 MissAV
 - 实时查看任务状态和运行日志，同一时间只运行一个下载任务
 - 浏览服务器媒体库，查看编码、分辨率、时长和大小
 - 后台设置可视化修改登录用户名、密码和 Web 端口
 - 浏览器下载支持 HTTP Range，可暂停或续传；只复制到本地，不删除服务器原文件
-- headed Chromium + Xvfb + Playwright + 持久 profile
-- 优先捕获 `mushroomtrack.com` M3U8
+- Jable 使用 headed Chromium + Xvfb + Playwright + 持久 profile，优先捕获 `mushroomtrack.com`
+- MissAV 优先安全解析公开播放器数据，页面结构变化时自动改用 Chromium，优先选择 `surrit.com`
+- MissAV 流量通过仅监听 `127.0.0.1` 的临时 HLS 转发层下载，任务结束即关闭
 - N_m3u8DL-RE + FFmpeg，固定启用 `--use-ffmpeg-concat-demuxer`
 - `ulimit -n 65535`，已通过 1972、2295 分片长视频验证
 - 保留 CLI：`n`、`n IPX-850`、`n ipx850`、`n "IPX 850"`
@@ -98,7 +100,23 @@ sudo firewall-cmd --reload
 
 ## 使用
 
-在 Web 首页输入番号并开始任务。下载完成后：
+在 Web 首页输入番号或详情页链接并开始任务，例如：
+
+```text
+IPX-850
+FC2-PPV-1234567
+https://jable.tv/videos/ipx-850/
+https://missav.ai/en/fc2-ppv-1234567
+```
+
+自动识别规则：
+
+- FC2 番号直接使用 MissAV；
+- 普通番号先搜索 Jable，未找到时自动转到 MissAV；
+- 详情页链接按域名直接选择 Jable 或 MissAV；
+- 不支持其他网站链接，也不会请求链接中指定的任意服务器。
+
+下载完成后：
 
 - 服务器原文件保存在 `media` 目录；
 - 点击“下载到本地”，由浏览器按自身下载设置选择电脑保存位置；
@@ -111,6 +129,10 @@ CLI 仍可使用：
 n IPX-850
 n ipx850
 n "IPX 850"
+n FC2-PPV-1234567
+n fc2ppv1234567
+n "FC2 PPV 1234567"
+n https://missav.ai/en/fc2-ppv-1234567
 n
 ```
 
@@ -183,7 +205,11 @@ sudo systemctl restart jable-downloader-web
 
 ### 搜索返回 403 或停在验证页
 
-保留 Chromium profile 后重试。站点策略可能变化，本项目不提供绕过验证码或访问控制的功能。
+MissAV 会先尝试读取公开播放器数据，失败后才改用持久 Chromium profile；Jable 仍直接使用 Chromium。保留 profile 后重试。站点策略可能变化，本项目不提供绕过验证码或访问控制的功能。
+
+### MissAV 捕获成功但分片返回 403
+
+保持 `missav_hls_relay` 为 `true`。该功能只在下载任务期间监听服务器本机的随机端口，并使用播放器捕获到的请求上下文读取公开可播放的 HLS 分片。
 
 ### 出现 Too many open files
 
@@ -193,6 +219,7 @@ sudo systemctl restart jable-downloader-web
 
 - [N_m3u8DL-RE](https://github.com/nilaoda/N_m3u8DL-RE)
 - [Playwright for Python](https://playwright.dev/python/)
+- [curl-cffi](https://github.com/lexiforest/curl_cffi)
 - [FastAPI](https://fastapi.tiangolo.com/)
 - [FFmpeg](https://ffmpeg.org/)
 

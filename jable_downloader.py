@@ -1,22 +1,31 @@
 #!/usr/bin/env python3
-"""Jable search, M3U8 capture and download workflow."""
+"""Automatic Jable/MissAV search, stream capture and download workflow."""
 
 from __future__ import annotations
 
 import json
+import ipaddress
 import os
 import re
 import shutil
 import subprocess
 import sys
 import time
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
-from urllib.parse import quote, urljoin
+from urllib.parse import quote, unquote, urljoin, urlparse, urlunparse
 
 from bs4 import BeautifulSoup
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from playwright.sync_api import sync_playwright
+
+from hls_proxy import HLSRelay
+
+try:
+    from curl_cffi import requests as browser_requests
+except ImportError:  # pragma: no cover - installer supplies this dependency
+    browser_requests = None
 
 
 DEFAULT_CONFIG_FILES = (
@@ -34,6 +43,22 @@ SUMMARY_ICONS = {
     "size": "💾",
     "elapsed": "⚡",
 }
+DEFAULT_BROWSER_UA = (
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+)
+PACKER_PATTERN = re.compile(
+    r"eval\(\s*function\(p,a,c,k,e,d\).*?\}\(\s*"
+    r"(?P<payload>'(?:\\.|[^'\\])*'|\"(?:\\.|[^\"\\])*\")\s*,\s*"
+    r"(?P<radix>\d+)\s*,\s*(?P<count>\d+)\s*,\s*"
+    r"(?P<keys>'(?:\\.|[^'\\])*'|\"(?:\\.|[^\"\\])*\")"
+    r"\.split\(\s*['\"]\|['\"]\s*\)",
+    re.DOTALL,
+)
+M3U8_URL_PATTERN = re.compile(
+    r"https?://[^\s'\"<>\\;]+\.m3u8(?:\?[^\s'\"<>\\;]*)?",
+    re.IGNORECASE,
+)
 
 
 class AppError(RuntimeError):
@@ -44,12 +69,82 @@ class AppError(RuntimeError):
         self.exit_code = exit_code
 
 
+@dataclass(frozen=True)
+class DownloadInput:
+    code: str
+    source: str
+    detail_url: str | None = None
+
+
+@dataclass(frozen=True)
+class CapturedStream:
+    url: str
+    source: str
+    referer: str
+    user_agent: str
+    cookies: dict[str, str]
+
+
 def normalize_code(value: str) -> str:
-    """Normalize IPX850, IPX 850 and IPX-850 to IPX-850."""
-    match = re.fullmatch(r"([A-Za-z]+)[\s_-]*(\d+)", value.strip())
+    """Normalize ordinary and FC2 identifiers to one safe filename form."""
+    compact = re.sub(r"[\s_-]+", "", value.strip().upper())
+    fc2_match = re.fullmatch(r"FC2(?:PPV)?(\d+)", compact)
+    if fc2_match:
+        return f"FC2-PPV-{fc2_match.group(1)}"
+    match = re.fullmatch(r"([A-Z]+)(\d+)", compact)
     if not match:
-        raise ValueError("无法识别番号格式，请输入类似 IPX-850、IPX850 或 IPX 850")
+        raise ValueError(
+            "无法识别输入，请使用 IPX-850、FC2-PPV-1234567 或受支持的详情页链接"
+        )
     return f"{match.group(1).upper()}-{match.group(2)}"
+
+
+def provider_from_hostname(hostname: str) -> str | None:
+    host = hostname.lower().rstrip(".")
+    if host == "jable.tv" or host.endswith(".jable.tv"):
+        return "jable"
+    if host.startswith("missav.") or ".missav." in host:
+        return "missav"
+    return None
+
+
+def parse_download_input(value: str) -> DownloadInput:
+    """Recognize a code or a safe Jable/MissAV detail URL."""
+    raw = value.strip()
+    if not raw or len(raw) > 2048:
+        raise ValueError("输入为空或过长")
+    if re.match(r"^https?://", raw, flags=re.IGNORECASE):
+        parsed = urlparse(raw)
+        try:
+            port = parsed.port
+        except ValueError as exc:
+            raise ValueError("详情页链接端口无效") from exc
+        source = provider_from_hostname(parsed.hostname or "")
+        if (
+            parsed.scheme.lower() not in {"http", "https"}
+            or source is None
+            or parsed.username
+            or parsed.password
+            or port not in {None, 80, 443}
+        ):
+            raise ValueError("只支持 Jable 或 MissAV 的 HTTP/HTTPS 详情页链接")
+        code = None
+        for segment in reversed([part for part in parsed.path.split("/") if part]):
+            try:
+                code = normalize_code(unquote(segment))
+                break
+            except ValueError:
+                continue
+        if not code:
+            raise ValueError("无法从详情页链接识别番号")
+        clean_url = urlunparse(
+            (parsed.scheme.lower(), parsed.netloc.lower(), parsed.path, "", parsed.query, "")
+        )
+        return DownloadInput(code=code, source=source, detail_url=clean_url)
+
+    code = normalize_code(raw)
+    source = "missav" if code.startswith("FC2-PPV-") else "auto"
+    return DownloadInput(code=code, source=source)
 
 
 def config_path() -> Path:
@@ -85,6 +180,17 @@ def load_config(path: Path | None = None) -> dict[str, Any]:
     missing = [key for key in required if not config.get(key)]
     if missing:
         raise AppError("配置缺少字段：" + ", ".join(missing))
+    # Runtime defaults keep v1/v2 installations compatible without replacing
+    # user-owned paths or the already verified Jable settings.
+    config.setdefault("jable_site", config["site"])
+    config.setdefault(
+        "jable_m3u8_preferred_domains", [config["m3u8_preferred_domain"]]
+    )
+    config.setdefault("missav_site", "https://missav.ai")
+    config.setdefault("missav_language", "en")
+    config.setdefault("missav_m3u8_preferred_domains", ["surrit.com"])
+    config.setdefault("missav_allow_m3u8_fallback", True)
+    config.setdefault("missav_hls_relay", True)
     return config
 
 
@@ -110,6 +216,30 @@ def find_detail_url(html: str, code: str, base: str) -> str | None:
         if url.rstrip("/").split("/")[-1].lower() == expected:
             return url
     return candidates[0] if candidates else None
+
+
+def normalized_text(value: str) -> str:
+    return re.sub(r"[^A-Z0-9]", "", value.upper())
+
+
+def find_missav_detail_url(html: str, code: str, base: str) -> str | None:
+    """Pick the exact MissAV detail result while ignoring categories/search links."""
+    soup = BeautifulSoup(html, "html.parser")
+    wanted = normalized_text(code)
+    candidates: list[str] = []
+    for anchor in soup.find_all("a", href=True):
+        href = str(anchor.get("href", ""))
+        url = urljoin(base, href)
+        parsed = urlparse(url)
+        segments = [unquote(part) for part in parsed.path.split("/") if part]
+        if not segments:
+            continue
+        if normalized_text(segments[-1]) != wanted:
+            continue
+        if any(part.lower() in {"search", "actresses", "genres", "makers"} for part in segments):
+            continue
+        candidates.append(url)
+    return next(iter(dict.fromkeys(candidates)), None)
 
 
 def existing_media(code: str, config: dict[str, Any]) -> Path | None:
@@ -156,21 +286,256 @@ def raise_open_file_limit() -> None:
         pass
 
 
-def capture_m3u8(code: str, config: dict[str, Any]) -> str:
-    base = str(config["site"]).rstrip("/")
-    preferred_domain = str(config["m3u8_preferred_domain"]).lower()
-    search_url = f"{base}/search/{quote(code)}/"
+def preferred_domains(config: dict[str, Any], source: str) -> list[str]:
+    value = config.get(f"{source}_m3u8_preferred_domains", [])
+    if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
+        raise AppError(f"{source}_m3u8_preferred_domains 必须是字符串数组")
+    return [item.lower() for item in value if item]
+
+
+def decode_js_string(literal: str) -> str:
+    """Decode one quoted JavaScript string without evaluating JavaScript."""
+    if len(literal) < 2 or literal[0] not in {"'", '"'} or literal[-1] != literal[0]:
+        raise ValueError("无效的 JavaScript 字符串")
+    content = literal[1:-1]
+    output: list[str] = []
+    index = 0
+    escapes = {
+        "b": "\b",
+        "f": "\f",
+        "n": "\n",
+        "r": "\r",
+        "t": "\t",
+        "v": "\v",
+        "0": "\0",
+        "\\": "\\",
+        "'": "'",
+        '"': '"',
+    }
+    while index < len(content):
+        character = content[index]
+        if character != "\\":
+            output.append(character)
+            index += 1
+            continue
+        index += 1
+        if index >= len(content):
+            raise ValueError("JavaScript 字符串包含不完整转义")
+        escaped = content[index]
+        if escaped in {"\n", "\r"}:
+            if escaped == "\r" and index + 1 < len(content) and content[index + 1] == "\n":
+                index += 1
+            index += 1
+            continue
+        if escaped == "x" and index + 2 < len(content):
+            output.append(chr(int(content[index + 1 : index + 3], 16)))
+            index += 3
+            continue
+        if escaped == "u" and index + 4 < len(content):
+            output.append(chr(int(content[index + 1 : index + 5], 16)))
+            index += 5
+            continue
+        output.append(escapes.get(escaped, escaped))
+        index += 1
+    return "".join(output)
+
+
+def packer_key(value: int, radix: int) -> str:
+    """Return the token spelling used by Dean Edwards-style P.A.C.K.E.R."""
+    alphabet = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+    if not 2 <= radix <= len(alphabet):
+        raise ValueError("不支持的脚本压缩进制")
+    if value == 0:
+        return "0"
+    digits: list[str] = []
+    while value:
+        value, remainder = divmod(value, radix)
+        digits.append(alphabet[remainder])
+    return "".join(reversed(digits))
+
+
+def unpack_packer_payloads(script_text: str) -> list[str]:
+    """Safely unpack string-substitution payloads used on public player pages."""
+    unpacked: list[str] = []
+    for match in PACKER_PATTERN.finditer(script_text):
+        try:
+            payload = decode_js_string(match.group("payload"))
+            keys = decode_js_string(match.group("keys")).split("|")
+            radix = int(match.group("radix"))
+            count = int(match.group("count"))
+            if count < 0 or count > 10000:
+                continue
+            for value in range(count - 1, -1, -1):
+                token = packer_key(value, radix)
+                replacement = keys[value] if value < len(keys) and keys[value] else token
+                payload = re.sub(
+                    rf"\b{re.escape(token)}\b",
+                    lambda _match, text=replacement: text,
+                    payload,
+                )
+            unpacked.append(payload)
+        except (ValueError, OverflowError):
+            continue
+    return unpacked
+
+
+def safe_stream_url(url: str) -> bool:
+    """Reject malformed, credentialed and obvious local-network stream URLs."""
+    try:
+        parsed = urlparse(url)
+        port = parsed.port
+    except ValueError:
+        return False
+    if (
+        parsed.scheme.lower() not in {"http", "https"}
+        or not parsed.hostname
+        or parsed.username
+        or parsed.password
+        or port not in {None, 80, 443}
+    ):
+        return False
+    try:
+        address = ipaddress.ip_address(parsed.hostname)
+    except ValueError:
+        return True
+    return not (
+        address.is_private
+        or address.is_loopback
+        or address.is_link_local
+        or address.is_multicast
+        or address.is_reserved
+        or address.is_unspecified
+    )
+
+
+def extract_packed_m3u8_urls(html: str) -> list[str]:
+    urls: list[str] = []
+    for payload in unpack_packer_payloads(html):
+        for match in M3U8_URL_PATTERN.finditer(payload):
+            url = match.group(0)
+            if safe_stream_url(url) and url not in urls:
+                urls.append(url)
+    return urls
+
+
+def choose_m3u8_url(urls: list[str], domains: list[str]) -> str | None:
+    def score(url: str) -> tuple[int, int]:
+        host = (urlparse(url).hostname or "").lower()
+        preferred = any(host == domain or host.endswith(f".{domain}") for domain in domains)
+        path = urlparse(url).path.lower()
+        master = path.endswith("/playlist.m3u8") or "master" in path
+        return (100 if preferred else 0) + (30 if master else 0), -urls.index(url)
+
+    return max(urls, key=score) if urls else None
+
+
+def capture_missav_static(
+    request: DownloadInput, config: dict[str, Any]
+) -> CapturedStream:
+    """Resolve a public MissAV player using an impersonated HTTP session."""
+    if browser_requests is None:
+        raise AppError("缺少 curl-cffi，无法启用 MissAV 静态解析", 4)
+    base = str(config["missav_site"]).rstrip("/")
+    language = str(config.get("missav_language", "en")).strip("/") or "en"
+    detail_url = request.detail_url if request.source == "missav" else None
+    headers = {"User-Agent": DEFAULT_BROWSER_UA, "Accept-Language": "en-US,en;q=0.9"}
+    timeout = max(5, int(config.get("page_timeout_ms", 30000)) // 1000)
+    session = browser_requests.Session(impersonate="chrome", headers=headers)
+
+    def fetch(url: str, referer: str | None = None) -> Any:
+        response = session.get(
+            url,
+            headers={"Referer": referer} if referer else None,
+            timeout=timeout,
+            allow_redirects=True,
+        )
+        if response.status_code != 200:
+            raise AppError(f"MISSAV 页面访问失败（HTTP {response.status_code}）", 4)
+        if provider_from_hostname(urlparse(str(response.url)).hostname or "") != "missav":
+            raise AppError("MISSAV 页面跳转到了不受支持的站点", 4)
+        return response
+
+    if detail_url is None:
+        print("🔎 正在通过 MissAV 搜索作品...")
+        search_url = f"{base}/{language}/search/{quote(request.code)}"
+        search_response = fetch(search_url)
+        detail_url = find_missav_detail_url(
+            search_response.text, request.code, str(search_response.url)
+        )
+        if not detail_url or provider_from_hostname(urlparse(detail_url).hostname or "") != "missav":
+            raise AppError(f"MISSAV 没找到 {request.code}", 3)
+
+    response = fetch(detail_url, base)
+    urls = extract_packed_m3u8_urls(response.text)
+    selected = choose_m3u8_url(urls, preferred_domains(config, "missav"))
+    if not selected:
+        raise AppError("MISSAV 静态页面没有解析到主视频 M3U8", 4)
+    cookies = {
+        str(name): str(value)
+        for name, value in session.cookies.get_dict().items()
+    }
+    print("✅ 来源：MissAV")
+    print(f"✅ 详情页：{detail_url}\n")
+    print("🎯 已从公开播放器数据解析主视频 M3U8")
+    print("   地址已隐藏，将立即交给下载器\n")
+    return CapturedStream(
+        url=selected,
+        source="missav",
+        referer=str(detail_url),
+        user_agent=DEFAULT_BROWSER_UA,
+        cookies=cookies,
+    )
+
+
+def activate_player(page: Any) -> None:
+    """Best-effort player activation; failures are handled by capture timeout."""
+    for selector in ("video", ".plyr", "button[aria-label*='Play']"):
+        try:
+            target = page.locator(selector).first
+            if target.is_visible(timeout=1000):
+                target.click(force=True, timeout=2000)
+                return
+        except Exception:
+            continue
+
+
+def capture_from_provider(
+    request: DownloadInput, source: str, config: dict[str, Any]
+) -> CapturedStream:
+    if source == "missav":
+        try:
+            return capture_missav_static(request, config)
+        except AppError as exc:
+            print(f"⚠️ {exc}，改用 Chromium 播放器捕获...\n")
+
+    if source == "jable":
+        base = str(config["jable_site"]).rstrip("/")
+        search_url = f"{base}/search/{quote(request.code)}/"
+        allow_fallback = bool(config.get("allow_m3u8_fallback", False))
+    else:
+        base = str(config["missav_site"]).rstrip("/")
+        language = str(config.get("missav_language", "en")).strip("/") or "en"
+        search_url = f"{base}/{language}/search/{quote(request.code)}"
+        allow_fallback = bool(config.get("missav_allow_m3u8_fallback", True))
+
     preferred: list[str] = []
     fallback: list[str] = []
+    domains = preferred_domains(config, source)
+    detail_url = request.detail_url if request.source == source else None
+    stream: CapturedStream | None = None
 
     with sync_playwright() as playwright:
         context = playwright.chromium.launch_persistent_context(
             str(config["browser_profile"]),
-            headless=False,
+            headless=bool(config.get("browser_headless", False)),
             executable_path=str(config["chromium"]),
             viewport={"width": 1365, "height": 768},
             locale=str(config.get("locale", "zh-CN")),
-            args=["--no-sandbox", "--disable-dev-shm-usage"],
+            args=[
+                "--no-sandbox",
+                "--disable-dev-shm-usage",
+                "--disable-blink-features=AutomationControlled",
+            ],
         )
         try:
             page = context.pages[0] if context.pages else context.new_page()
@@ -178,64 +543,131 @@ def capture_m3u8(code: str, config: dict[str, Any]) -> str:
             search_wait_ms = int(config.get("search_wait_ms", 5000))
             capture_timeout_ms = int(config.get("capture_timeout_ms", 20000))
 
-            print("🔎 正在搜索作品...")
-            response = page.goto(
-                search_url, wait_until="domcontentloaded", timeout=timeout_ms
-            )
-            page.wait_for_timeout(search_wait_ms)
-            if response is None:
-                raise AppError("搜索页没有返回 HTTP 响应", 2)
-            print(f"   HTTP：{response.status}")
-            if response.status != 200:
-                raise AppError(f"搜索页面访问失败（HTTP {response.status}）", 2)
-
-            detail_url = find_detail_url(page.content(), code, base)
-            if not detail_url:
-                raise AppError(f"没找到 {code} 的作品详情页", 3)
+            if detail_url is None:
+                print(f"🔎 正在通过 {'Jable' if source == 'jable' else 'MissAV'} 搜索作品...")
+                response = page.goto(
+                    search_url, wait_until="domcontentloaded", timeout=timeout_ms
+                )
+                page.wait_for_timeout(search_wait_ms)
+                if response is None:
+                    raise AppError("搜索页没有返回 HTTP 响应", 2)
+                print(f"   HTTP：{response.status}")
+                if response.status != 200:
+                    raise AppError(f"搜索页面访问失败（HTTP {response.status}）", 2)
+                if source == "jable":
+                    detail_url = find_detail_url(page.content(), request.code, base)
+                else:
+                    detail_url = find_missav_detail_url(
+                        page.content(), request.code, page.url
+                    )
+                if not detail_url:
+                    raise AppError(f"{source.upper()} 没找到 {request.code}", 3)
+            print(f"✅ 来源：{'Jable' if source == 'jable' else 'MissAV'}")
             print(f"✅ 详情页：{detail_url}\n")
 
             def record(url: str) -> None:
-                lower = url.lower()
-                if ".m3u8" not in lower:
+                if ".m3u8" not in url.lower():
                     return
-                bucket = preferred if preferred_domain in lower else fallback
+                matched = any(domain in url.lower() for domain in domains)
+                bucket = preferred if matched else fallback
                 if url not in bucket:
                     bucket.append(url)
-                    if bucket is preferred:
+                    if matched:
                         print("🎯 捕获主视频 M3U8")
-                        print(url, "\n")
+                        print("   地址已隐藏，将立即交给下载器\n")
 
-            page.on("request", lambda request: record(request.url))
-            page.on("response", lambda response: record(response.url))
+            page.on("request", lambda browser_request: record(browser_request.url))
+            page.on("response", lambda browser_response: record(browser_response.url))
+            context.on(
+                "page",
+                lambda popup: popup.close() if popup != page else None,
+            )
             print("📡 正在加载播放器...")
             response = page.goto(
                 detail_url, wait_until="domcontentloaded", timeout=timeout_ms
             )
             if response:
                 print(f"   HTTP：{response.status}")
+            if source == "missav":
+                activate_player(page)
 
             deadline = time.monotonic() + capture_timeout_ms / 1000
             while not preferred and time.monotonic() < deadline:
                 page.wait_for_timeout(500)
+                if source == "missav" and not preferred and not fallback:
+                    activate_player(page)
+
+            selected = preferred[0] if preferred else (fallback[0] if allow_fallback and fallback else None)
+            if selected:
+                cookie_map = {
+                    str(item["name"]): str(item["value"])
+                    for item in context.cookies()
+                    if item.get("name")
+                }
+                user_agent = str(page.evaluate("() => navigator.userAgent"))
+                stream = CapturedStream(
+                    url=selected,
+                    source=source,
+                    referer=str(detail_url),
+                    user_agent=user_agent,
+                    cookies=cookie_map,
+                )
         except PlaywrightTimeoutError as exc:
-            raise AppError("浏览器等待页面超时，请稍后重试", 4) from exc
+            raise AppError(f"{source.upper()} 浏览器等待页面超时，请稍后重试", 4) from exc
         finally:
             context.close()
 
-    if preferred:
-        return preferred[0]
-    if config.get("allow_m3u8_fallback", False) and fallback:
-        print("⚠️ 未捕获首选域名，按配置使用备用 M3U8")
-        return fallback[0]
-    raise AppError(f"没有捕获到 {preferred_domain} 的主视频 M3U8", 4)
+    if stream:
+        if not preferred:
+            print("⚠️ 未捕获首选 CDN，按配置使用备用 M3U8")
+        return stream
+    expected = "、".join(domains) or "配置的首选 CDN"
+    raise AppError(f"{source.upper()} 没有捕获到 {expected} 的主视频 M3U8", 4)
 
 
-def run_downloader(code: str, m3u8: str, config: dict[str, Any]) -> Path:
+def capture_stream(request: DownloadInput, config: dict[str, Any]) -> CapturedStream:
+    if request.source in {"jable", "missav"}:
+        sources = [request.source]
+    else:
+        sources = ["jable", "missav"]
+    failures: list[str] = []
+    for source in sources:
+        try:
+            return capture_from_provider(request, source, config)
+        except AppError as exc:
+            failures.append(str(exc))
+            if source != sources[-1]:
+                print(f"⚠️ {exc}，自动切换到 MissAV...\n")
+    raise AppError("；".join(failures), 4)
+
+
+def capture_m3u8(code: str, config: dict[str, Any]) -> str:
+    """Backward-compatible helper retained for callers of the v1/v2 core."""
+    return capture_stream(parse_download_input(code), config).url
+
+
+def run_downloader(
+    code: str, captured: CapturedStream | str, config: dict[str, Any]
+) -> Path:
     download_dir = Path(config["download_dir"])
     work_dir = Path(config["work_dir"])
+    stream = (
+        captured
+        if isinstance(captured, CapturedStream)
+        else CapturedStream(str(captured), "jable", "", "", {})
+    )
+    relay: HLSRelay | None = None
+    download_url = stream.url
+    if stream.source == "missav" and config.get("missav_hls_relay", True):
+        relay = HLSRelay(stream.referer, stream.user_agent, stream.cookies)
+        try:
+            download_url = relay.start(stream.url)
+        except (RuntimeError, OSError, ValueError) as exc:
+            raise AppError(f"MissAV HLS 转发启动失败：{exc}", 5) from exc
+        print("\n🛡️ 已启用 MissAV 本机 HLS 转发")
     command = [
         str(config["n_m3u8dl_re"]),
-        m3u8,
+        download_url,
         "--save-dir",
         str(download_dir),
         "--save-name",
@@ -245,6 +677,10 @@ def run_downloader(code: str, m3u8: str, config: dict[str, Any]) -> Path:
         "--del-after-done",
         "true",
     ]
+    if relay is None and stream.user_agent:
+        command.extend(["--header", f"User-Agent: {stream.user_agent}"])
+    if relay is None and stream.referer:
+        command.extend(["--header", f"Referer: {stream.referer}"])
     extra_args = config.get("n_m3u8dl_extra_args", [])
     if not isinstance(extra_args, list) or not all(
         isinstance(item, str) for item in extra_args
@@ -253,7 +689,11 @@ def run_downloader(code: str, m3u8: str, config: dict[str, Any]) -> Path:
     command.extend(extra_args)
 
     print("\n📥 开始调用 N_m3u8DL-RE...\n")
-    result = subprocess.run(command, cwd=work_dir, check=False)
+    try:
+        result = subprocess.run(command, cwd=work_dir, check=False)
+    finally:
+        if relay is not None:
+            relay.stop()
     if result.returncode != 0:
         raise AppError(
             f"下载失败，退出码：{result.returncode}；临时分片保留在 {work_dir} 便于恢复",
@@ -368,15 +808,22 @@ def main(argv: list[str] | None = None) -> int:
     started_at = time.time()
     raise_open_file_limit()
     try:
-        raw_code = " ".join(argv) if argv else input("请输入番号：").strip()
-        code = normalize_code(raw_code)
+        raw_code = " ".join(argv) if argv else input("请输入番号或详情页链接：").strip()
+        request = parse_download_input(raw_code)
+        code = request.code
         config = load_config()
         ensure_directories(config)
 
         print("\n======================================")
-        print(" Jable Downloader")
+        print(" Jable + MissAV Downloader")
         print("======================================")
         print(f"🎬 番号：{code}\n")
+        if request.source == "missav":
+            print("🧭 自动识别：MissAV\n")
+        elif request.source == "jable":
+            print("🧭 自动识别：Jable\n")
+        else:
+            print("🧭 自动识别：Jable 优先，未找到时转 MissAV\n")
 
         existing = existing_media(code, config)
         if existing:
@@ -385,9 +832,9 @@ def main(argv: list[str] | None = None) -> int:
             print("\n为避免重复下载，本次退出。")
             return 0
 
-        m3u8 = capture_m3u8(code, config)
+        captured = capture_stream(request, config)
         print("\n✅ M3U8 解析成功")
-        finished = run_downloader(code, m3u8, config)
+        finished = run_downloader(code, captured, config)
         target = move_to_media(finished, code, config)
         print_success(code, target, started_at)
         return 0

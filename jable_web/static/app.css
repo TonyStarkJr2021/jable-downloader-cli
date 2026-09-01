@@ -34,6 +34,7 @@ h2 { margin-bottom: 10px; font-size: 24px; letter-spacing: -.03em; }
 .hero-help { max-width: 920px; }
 .compact { margin: 14px 0 0; font-size: 13px; }
 .download-form { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; margin-top: 34px; }
+.source-help { margin: 10px 0 0; color: var(--muted); font-size: 13px; line-height: 1.55; }
 input { min-width: 0; border: 1px solid var(--border); border-radius: 14px; padding: 15px 17px; background: #0b0e10; color: var(--text); outline: none; transition: border-color .18s, box-shadow .18s; }
 input:focus { border-color: var(--accent); box-shadow: 0 0 0 4px rgba(94, 230, 168, .12); }
 .primary-button, .ghost-button { border: 0; border-radius: 14px; padding: 14px 20px; cursor: pointer; font-weight: 760; text-decoration: none; transition: transform .16s, background .16s; }

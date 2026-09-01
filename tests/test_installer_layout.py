@@ -7,6 +7,7 @@ UNINSTALLER = (Path(__file__).parents[1] / "uninstall.sh").read_text(encoding="u
 README = (Path(__file__).parents[1] / "README.md").read_text(encoding="utf-8")
 UPDATER = (Path(__file__).parents[1] / "update.sh").read_text(encoding="utf-8")
 SERVICE = (Path(__file__).parents[1] / "systemd" / "jable-downloader-web.service").read_text(encoding="utf-8")
+REQUIREMENTS = (Path(__file__).parents[1] / "requirements.txt").read_text(encoding="utf-8")
 
 
 class InstallerPlatformTests(unittest.TestCase):
@@ -47,6 +48,14 @@ class InstallerPlatformTests(unittest.TestCase):
         self.assertIn("jable-downloader-web.service", UNINSTALLER)
         self.assertIn("防火墙未被修改", INSTALLER)
         self.assertIn("ReadWritePaths=/etc/jable-downloader", SERVICE)
+
+    def test_multisource_files_and_config_are_installed_and_migrated(self):
+        for script in (INSTALLER, UPDATER):
+            self.assertIn("hls_proxy.py", script)
+            self.assertIn('config.setdefault("missav_site"', script)
+            self.assertIn('config.setdefault("missav_hls_relay"', script)
+        self.assertIn("curl-cffi", REQUIREMENTS)
+        self.assertIn("FC2-PPV-1234567", README)
 
     def test_public_repository_urls_are_release_ready(self):
         expected = "TonyStarkJr2021/jable-downloader-cli"

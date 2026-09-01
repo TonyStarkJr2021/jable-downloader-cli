@@ -70,8 +70,8 @@ def create_app(
     media_dir = Path(str(cli_config["media_dir"]))
 
     app = FastAPI(
-        title="Jable Downloader Web",
-        version="2.0.1",
+        title="Jable + MissAV Downloader Web",
+        version="2.1.0",
         docs_url=None,
         redoc_url=None,
         openapi_url=None,

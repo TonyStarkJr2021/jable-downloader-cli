@@ -8,7 +8,7 @@ from collections import deque
 from pathlib import Path
 from typing import Any
 
-from jable_downloader import normalize_code
+from jable_downloader import parse_download_input
 
 
 class TaskBusyError(RuntimeError):
@@ -30,6 +30,7 @@ class DownloadTaskManager:
         self._state: dict[str, Any] = {
             "state": "idle",
             "code": None,
+            "source": None,
             "started_at": None,
             "finished_at": None,
             "return_code": None,
@@ -37,21 +38,32 @@ class DownloadTaskManager:
         }
 
     def start(self, raw_code: str) -> str:
-        code = normalize_code(raw_code)
+        request = parse_download_input(raw_code)
+        code = request.code
+        argument = request.detail_url or code
+        source_labels = {
+            "auto": "自动：Jable → MissAV",
+            "jable": "Jable",
+            "missav": "MissAV",
+        }
         with self._lock:
             if self._state["state"] == "running":
                 raise TaskBusyError("已有下载任务正在运行")
             self._state = {
                 "state": "running",
                 "code": code,
+                "source": request.source,
                 "started_at": time.time(),
                 "finished_at": None,
                 "return_code": None,
-                "logs": deque([f"准备下载 {code}"], maxlen=self.max_log_lines),
+                "logs": deque(
+                    [f"准备下载 {code}", f"来源：{source_labels[request.source]}"],
+                    maxlen=self.max_log_lines,
+                ),
             }
             try:
                 process = subprocess.Popen(
-                    [self.command, code],
+                    [self.command, argument],
                     stdout=subprocess.PIPE,
                     stderr=subprocess.STDOUT,
                     text=True,

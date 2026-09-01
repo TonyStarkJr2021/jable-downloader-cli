@@ -395,7 +395,7 @@ else
   SOURCE_DIR="$TEMP_DIR/source"
 fi
 
-for required in jable_downloader.py config.example.json web.example.json requirements.txt bin/n update.sh uninstall.sh VERSION systemd/jable-downloader-web.service; do
+for required in jable_downloader.py hls_proxy.py config.example.json web.example.json requirements.txt bin/n update.sh uninstall.sh VERSION systemd/jable-downloader-web.service; do
   if [[ ! -f "$SOURCE_DIR/$required" ]]; then
     echo "安装源不完整，缺少：$required" >&2
     exit 1
@@ -457,6 +457,7 @@ fi
 echo "[3/7] 安装应用与 Python 环境..."
 install -d -m 0755 "$APP_DIR" "$CONFIG_DIR" "$STATE_DIR"
 install -m 0755 "$SOURCE_DIR/jable_downloader.py" "$APP_DIR/jable_downloader.py"
+install -m 0644 "$SOURCE_DIR/hls_proxy.py" "$APP_DIR/hls_proxy.py"
 install -m 0644 "$SOURCE_DIR/requirements.txt" "$APP_DIR/requirements.txt"
 install -m 0644 "$SOURCE_DIR/config.example.json" "$APP_DIR/config.example.json"
 install -m 0644 "$SOURCE_DIR/web.example.json" "$APP_DIR/web.example.json"
@@ -504,6 +505,13 @@ path, root = sys.argv[1:]
 config = json.load(open(path, encoding="utf-8"))
 data_parent = os.path.dirname(config.get("download_dir", "")) or root
 config.setdefault("work_dir", os.path.join(data_parent, "work"))
+config.setdefault("jable_site", config.get("site", "https://jable.tv"))
+config.setdefault("jable_m3u8_preferred_domains", [config.get("m3u8_preferred_domain", "mushroomtrack.com")])
+config.setdefault("missav_site", "https://missav.ai")
+config.setdefault("missav_language", "en")
+config.setdefault("missav_m3u8_preferred_domains", ["surrit.com"])
+config.setdefault("missav_allow_m3u8_fallback", True)
+config.setdefault("missav_hls_relay", True)
 with open(path, "w", encoding="utf-8") as handle:
     json.dump(config, handle, ensure_ascii=False, indent=2)
     handle.write("\n")
@@ -578,7 +586,7 @@ if [[ "$WEB_ENABLED" == true ]]; then
 fi
 
 echo "[7/7] 验证安装..."
-"$APP_DIR/venv/bin/python" -m py_compile "$APP_DIR/jable_downloader.py" "$APP_DIR"/jable_web/*.py
+"$APP_DIR/venv/bin/python" -m py_compile "$APP_DIR/jable_downloader.py" "$APP_DIR/hls_proxy.py" "$APP_DIR"/jable_web/*.py
 test -x "$CHROMIUM_PATH"
 command -v ffprobe >/dev/null
 command -v xvfb-run >/dev/null
@@ -592,7 +600,7 @@ echo
 echo "✅ 安装完成"
 echo "配置文件：$CONFIG_FILE"
 echo "媒体目录：${DATA_DIRS[2]}"
-echo "现在可运行：n、n IPX-850、n ipx850 或 n \"IPX 850\""
+echo "现在可运行：n IPX-850、n FC2-PPV-1234567，或直接粘贴 Jable/MissAV 详情页链接"
 if [[ "$WEB_ENABLED" == true ]]; then
   ACCESS_HOST="$WEB_HOST"
   [[ "$ACCESS_HOST" == "0.0.0.0" ]] && ACCESS_HOST="服务器IP"
