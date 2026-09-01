@@ -57,6 +57,13 @@ class InstallerPlatformTests(unittest.TestCase):
         self.assertIn("curl-cffi", REQUIREMENTS)
         self.assertIn("FC2-PPV-1234567", README)
 
+    def test_classified_media_directories_are_upgrade_safe(self):
+        for script in (INSTALLER, UPDATER):
+            self.assertIn('config.setdefault("jav_media_dir"', script)
+            self.assertIn('config.setdefault("fc2_media_dir"', script)
+        self.assertIn("现有媒体未移动", UPDATER)
+        self.assertIn("JAV/FC2 分类目录", UNINSTALLER)
+
     def test_public_repository_urls_are_release_ready(self):
         expected = "TonyStarkJr2021/jable-downloader-cli"
         self.assertIn(expected, README)

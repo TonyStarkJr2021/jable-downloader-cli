@@ -2,6 +2,8 @@
   "work_dir": "/mnt/raid_hdd/AV/work",
   "download_dir": "/mnt/raid_hdd/AV/downloads",
   "media_dir": "/mnt/raid_hdd/AV/media",
+  "jav_media_dir": "/mnt/raid_hdd/AV/media/JAV",
+  "fc2_media_dir": "/mnt/raid_hdd/AV/media/FC2",
   "browser_profile": "/var/lib/jable-downloader/chromium-profile",
   "chromium": "/usr/bin/chromium",
   "n_m3u8dl_re": "/usr/local/bin/N_m3u8DL-RE",

@@ -12,11 +12,15 @@ MEDIA_EXTENSIONS = {".mp4", ".mkv", ".ts", ".m4v", ".mov"}
 
 
 def resolve_media(media_dir: Path, filename: str) -> Path:
-    if not filename or Path(filename).name != filename:
+    if not filename or "\\" in filename:
         raise FileNotFoundError(filename)
     root = media_dir.resolve(strict=True)
     candidate = (root / filename).resolve(strict=True)
-    if candidate.parent != root or not candidate.is_file():
+    try:
+        candidate.relative_to(root)
+    except ValueError as exc:
+        raise FileNotFoundError(filename) from exc
+    if not candidate.is_file():
         raise FileNotFoundError(filename)
     if candidate.suffix.lower() not in MEDIA_EXTENSIONS:
         raise FileNotFoundError(filename)
@@ -113,14 +117,17 @@ def list_media(media_dir: Path) -> list[dict[str, Any]]:
     if not media_dir.is_dir():
         return []
     entries = []
-    for path in media_dir.iterdir():
+    for path in media_dir.rglob("*"):
         if not path.is_file() or path.suffix.lower() not in MEDIA_EXTENSIONS:
             continue
         stat = path.stat()
+        relative_name = path.relative_to(media_dir).as_posix()
+        category = relative_name.split("/", 1)[0] if "/" in relative_name else "未分类"
         entries.append(
             {
-                "name": path.name,
+                "name": relative_name,
                 "code": path.stem.upper(),
+                "category": category,
                 "size": stat.st_size,
                 "modified_at": stat.st_mtime,
             }

@@ -19,6 +19,10 @@ function formatDate(timestamp) {
   return new Intl.DateTimeFormat("zh-CN", { dateStyle: "medium", timeStyle: "short" }).format(new Date(timestamp * 1000));
 }
 
+function mediaUrl(prefix, filename) {
+  return `${prefix}/${filename.split("/").map(encodeURIComponent).join("/")}`;
+}
+
 async function requestJson(url, options = {}) {
   const response = await fetch(url, { credentials: "same-origin", ...options });
   let payload = {};
@@ -73,7 +77,7 @@ async function refreshMedia() {
       row.dataset.filename = item.name;
       row.innerHTML = `<span class="media-code"></span><span class="media-meta"></span><span class="row-action">查看</span>`;
       row.querySelector(".media-code").textContent = item.code;
-      row.querySelector(".media-meta").textContent = `${formatBytes(item.size)} · ${formatDate(item.modified_at)}`;
+      row.querySelector(".media-meta").textContent = `${item.category} · ${formatBytes(item.size)} · ${formatDate(item.modified_at)}`;
       row.addEventListener("click", () => showMedia(item.name));
       return row;
     }));
@@ -90,7 +94,7 @@ async function showMedia(filename) {
   details.innerHTML = '<div class="empty-state">正在读取媒体信息…</div>';
   dialog.showModal();
   try {
-    const item = await requestJson(`/api/media/${encodeURIComponent(filename)}`);
+    const item = await requestJson(mediaUrl("/api/media", filename));
     const resolution = item.width && item.height ? `${item.width}×${item.height}` : "未知";
     const fields = [
       ["视频", `${item.video_codec} / ${resolution}`],
@@ -103,7 +107,7 @@ async function showMedia(filename) {
       const dd = document.createElement("dd"); dd.textContent = value;
       return [dt, dd];
     }));
-    document.querySelector("#download-link").href = `/download/${encodeURIComponent(filename)}`;
+    document.querySelector("#download-link").href = mediaUrl("/download", filename);
   } catch (error) {
     details.innerHTML = '<div class="empty-state"></div>';
     details.firstElementChild.textContent = error.message;

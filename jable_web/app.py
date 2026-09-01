@@ -16,6 +16,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from jable_downloader import duration_text
+from jable_web import __version__
 from jable_web.auth import (
     LoginLimiter,
     Session,
@@ -71,7 +72,7 @@ def create_app(
 
     app = FastAPI(
         title="Jable + MissAV Downloader Web",
-        version="2.1.1",
+        version=__version__,
         docs_url=None,
         redoc_url=None,
         openapi_url=None,
@@ -331,7 +332,7 @@ def create_app(
         require_session(request)
         return {"items": list_media(app.state.media_dir)}
 
-    @app.get("/api/media/{filename}")
+    @app.get("/api/media/{filename:path}")
     async def media_detail(filename: str, request: Request):
         require_session(request)
         try:
@@ -348,7 +349,7 @@ def create_app(
         )
         return info
 
-    @app.get("/download/{filename}")
+    @app.get("/download/{filename:path}")
     async def download(filename: str, request: Request):
         require_session(request)
         try:

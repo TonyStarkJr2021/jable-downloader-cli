@@ -64,6 +64,9 @@ install -d -m 0700 "$BACKUP_DIR"
 for file in jable_downloader.py hls_proxy.py requirements.txt VERSION; do
   [[ -f "$APP_DIR/$file" ]] && cp -p "$APP_DIR/$file" "$BACKUP_DIR/$file"
 done
+for file in config.json web.json source.env; do
+  [[ -f "$CONFIG_DIR/$file" ]] && cp -p "$CONFIG_DIR/$file" "$BACKUP_DIR/$file"
+done
 [[ -d "$APP_DIR/jable_web" ]] && cp -a "$APP_DIR/jable_web" "$BACKUP_DIR/jable_web"
 if [[ -f "$COMMAND_PATH" ]] && grep -q "Managed by jable-downloader" "$COMMAND_PATH"; then
   cp -p "$COMMAND_PATH" "$BACKUP_DIR/n"
@@ -91,7 +94,7 @@ else
 fi
 "$APP_DIR/venv/bin/python" -m pip install --disable-pip-version-check -r "$APP_DIR/requirements.txt"
 "$APP_DIR/venv/bin/python" - "$CONFIG_DIR/config.json" <<'PY'
-import json, sys
+import json, os, sys
 path = sys.argv[1]
 with open(path, encoding="utf-8") as handle:
     config = json.load(handle)
@@ -102,11 +105,26 @@ config.setdefault("missav_language", "en")
 config.setdefault("missav_m3u8_preferred_domains", ["surrit.com"])
 config.setdefault("missav_allow_m3u8_fallback", True)
 config.setdefault("missav_hls_relay", True)
-with open(path, "w", encoding="utf-8") as handle:
+media_root = config.get("media_dir", "/mnt/raid_hdd/AV/media")
+config.setdefault("jav_media_dir", os.path.join(media_root, "JAV"))
+config.setdefault("fc2_media_dir", os.path.join(media_root, "FC2"))
+temporary = path + ".tmp"
+with open(temporary, "w", encoding="utf-8") as handle:
     json.dump(config, handle, ensure_ascii=False, indent=2)
     handle.write("\n")
+os.replace(temporary, path)
 PY
 chmod 0600 "$CONFIG_DIR/config.json"
+mapfile -t MEDIA_DIRS < <("$APP_DIR/venv/bin/python" - "$CONFIG_DIR/config.json" <<'PY'
+import json, sys
+config = json.load(open(sys.argv[1], encoding="utf-8"))
+for key in ("media_dir", "jav_media_dir", "fc2_media_dir"):
+    print(config[key])
+PY
+)
+for directory in "${MEDIA_DIRS[@]}"; do
+  install -d -m 0755 "$directory"
+done
 "$APP_DIR/venv/bin/python" -m py_compile "$APP_DIR/jable_downloader.py" "$APP_DIR/hls_proxy.py" "$APP_DIR"/jable_web/*.py
 
 WEB_PASSWORD_DISPLAY=""
@@ -128,7 +146,10 @@ if [[ -d /run/systemd/system ]]; then
 fi
 
 echo "✅ 更新完成：v$(cat "$APP_DIR/VERSION")"
-echo "配置与 Chromium profile 均未改动。回滚备份：$BACKUP_DIR"
+echo "现有媒体未移动；新下载会自动归档到 JAV/FC2 分类目录。"
+echo "配置、账号与 Chromium profile 已保留。回滚备份：$BACKUP_DIR"
+echo "JAV 目录：${MEDIA_DIRS[1]}"
+echo "FC2 目录：${MEDIA_DIRS[2]}"
 if [[ -n "${WEB_PORT:-}" ]]; then
   ACCESS_HOST="${WEB_HOST:-服务器IP}"
   [[ "$ACCESS_HOST" == "0.0.0.0" ]] && ACCESS_HOST="服务器IP"

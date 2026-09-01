@@ -11,7 +11,8 @@
 - 输入 `IPX-850`、`ipx850`、`FC2-PPV-1234567` 或详情页链接，自动标准化并查重
 - 自动识别来源：FC2 使用 MissAV；普通番号优先使用 Jable，未找到时转到 MissAV
 - 实时查看任务状态和运行日志，同一时间只运行一个下载任务
-- 浏览服务器媒体库，查看编码、分辨率、时长和大小
+- 自动分类归档：普通 JAV 写入 `media/JAV`，FC2 写入 `media/FC2`
+- 递归浏览服务器媒体库，兼容升级前仍位于 `media` 根目录的成品
 - 后台设置可视化修改登录用户名、密码和 Web 端口
 - 浏览器下载支持 HTTP Range，可暂停或续传；只复制到本地，不删除服务器原文件
 - Jable 使用 headed Chromium + Xvfb + Playwright + 持久 profile，优先捕获 `mushroomtrack.com`
@@ -118,7 +119,7 @@ https://missav.ai/en/fc2-ppv-1234567
 
 下载完成后：
 
-- 服务器原文件保存在 `media` 目录；
+- 普通 JAV 保存在 `media/JAV`，FC2 保存在 `media/FC2`；
 - 点击“下载到本地”，由浏览器按自身下载设置选择电脑保存位置；
 - 本地下载是复制，服务器文件不会被移动或删除；
 - 如果同番号已存在，任务会快速结束，可直接从媒体库下载现有文件。
@@ -154,7 +155,87 @@ n
 bash <(curl -fsSL https://raw.githubusercontent.com/TonyStarkJr2021/jable-downloader-cli/main/update.sh)
 ```
 
-完成一次 v2 升级后，后续版本也可以运行 `sudo /opt/jable-downloader/update.sh`。更新会保留 Web 账号、端口、下载配置、Chromium profile 和全部媒体；旧程序备份在 `/opt/jable-downloader/backups/`。
+完成一次 v2 升级后，后续版本也可以运行 `sudo /opt/jable-downloader/update.sh`。更新会保留 Web 账号、端口、下载配置、Chromium profile 和全部媒体；旧程序与更新前配置备份在 `/opt/jable-downloader/backups/`。
+
+从 v2.1.1 升级到 v2.2.0 时，更新器会自动补充 `jav_media_dir`、`fc2_media_dir` 并创建分类目录，但不会自动移动任何现有媒体。旧文件仍会被查重和 Web 面板识别；确认迁移方案后再按下节操作。
+
+## 从 v2.1.1 迁移现有媒体与 Jellyfin
+
+目标结构：
+
+```text
+/mnt/raid_hdd/AV/media/
+├── JAV/
+│   └── 普通 JAV 视频、同名封面和 NFO
+└── FC2/
+    └── FC2-PPV-* 视频、同名封面和 NFO
+```
+
+先更新下载器。更新完成后，新任务已经会进入分类目录，现有文件仍停留原处：
+
+```bash
+sudo /opt/jable-downloader/update.sh
+```
+
+先查看根目录待迁移内容，不会改动文件：
+
+```bash
+find /mnt/raid_hdd/AV/media -mindepth 1 -maxdepth 1 \
+  ! -name JAV ! -name FC2 -printf '%f\n' | sort
+```
+
+确认清单后，暂停下载任务并分类移动。脚本遇到同名目标会停止，不会覆盖；FC2 的视频、封面、字幕和 NFO 只要以相同番号开头都会一起进入 FC2：
+
+```bash
+sudo systemctl stop jable-downloader-web
+sudo bash <<'EOF'
+set -Eeuo pipefail
+MEDIA_ROOT=/mnt/raid_hdd/AV/media
+mkdir -p "$MEDIA_ROOT/JAV" "$MEDIA_ROOT/FC2"
+shopt -s nullglob nocasematch dotglob
+
+destination_for() {
+  case "$1" in
+    FC2-PPV-*|FC2PPV-*|FC2-*) printf '%s\n' "$MEDIA_ROOT/FC2" ;;
+    *) printf '%s\n' "$MEDIA_ROOT/JAV" ;;
+  esac
+}
+
+# 先检查所有目标，发现同名文件时不开始迁移。
+for source in "$MEDIA_ROOT"/*; do
+  name=${source##*/}
+  [[ "$name" == JAV || "$name" == FC2 ]] && continue
+  destination=$(destination_for "$name")
+  target="$destination/$name"
+  [[ ! -e "$target" ]] || { echo "目标已存在，停止：$target" >&2; exit 1; }
+done
+
+for source in "$MEDIA_ROOT"/*; do
+  name=${source##*/}
+  [[ "$name" == JAV || "$name" == FC2 ]] && continue
+  destination=$(destination_for "$name")
+  mv -- "$source" "$destination/"
+done
+EOF
+sudo systemctl start jable-downloader-web
+```
+
+如果命令因同名目标停止，预检阶段不会移动任何文件；先人工核对提示的源文件与目标文件，再重新执行。不要使用强制覆盖参数。
+
+Jellyfin/MetaTube 不需要改 Docker Compose，继续保留宿主机映射：
+
+```text
+/mnt/raid_hdd/AV/media  →  /media
+```
+
+只在 Jellyfin 控制台调整媒体库：
+
+1. 打开“控制台 → 媒体库”，编辑现有 JAV 库，将文件夹从 `/media` 改为 `/media/JAV`。
+2. 新建独立的 FC2 电影库，文件夹选择 `/media/FC2`。
+3. 两个库均保留 MetaTube 为元数据和图片提供器；不要再把父目录 `/media` 加入任何库，否则会重复收录。
+4. 保存后分别扫描 JAV 与 FC2 库。确认条目和播放正常，再清理 Jellyfin 中可能残留的旧路径条目。
+
+这套迁移只移动媒体文件并修改 Jellyfin 的扫描路径，不会触碰 Jellyfin 配置、MetaTube Server、PostgreSQL、Docker 卷、挂载点或 `update-media`。如果 FC2 Provider 暂时不可用，分类目录和现有手工元数据仍会保留；以后 Provider 恢复后只需对 FC2 库刷新元数据。
 
 ## 一键卸载
 
@@ -176,7 +257,7 @@ CentOS 7/8 恢复安装前 repo：
 bash <(curl -fsSL https://raw.githubusercontent.com/TonyStarkJr2021/jable-downloader-cli/main/uninstall.sh) --restore-repos
 ```
 
-卸载始终保留 `work`、`downloads`、`media` 及其中的媒体文件，也不会改动 qBittorrent、MoviePilot、Docker、挂载点或防火墙。
+卸载始终保留 `work`、`downloads`、`media/JAV`、`media/FC2` 及其中的媒体文件，也不会改动 qBittorrent、MoviePilot、Jellyfin、MetaTube、Docker、挂载点或防火墙。
 
 ## 服务与配置
 
@@ -195,7 +276,11 @@ sudo systemctl restart jable-downloader-web
 | `/usr/local/bin/n` | 全局 CLI 命令 |
 | `/mnt/raid_hdd/AV/work` | 临时分片 |
 | `/mnt/raid_hdd/AV/downloads` | 合并后的待归档文件 |
-| `/mnt/raid_hdd/AV/media` | 正式成品 |
+| `/mnt/raid_hdd/AV/media` | 媒体根目录及旧版未分类成品 |
+| `/mnt/raid_hdd/AV/media/JAV` | 普通 JAV 正式成品 |
+| `/mnt/raid_hdd/AV/media/FC2` | FC2 正式成品 |
+
+分类目录可在 `/etc/jable-downloader/config.json` 中通过 `jav_media_dir` 和 `fc2_media_dir` 单独覆盖。`media_dir` 继续作为 Web 媒体浏览与旧版兼容的共同根目录；若把分类目录设到根目录之外，Jable CLI 仍可归档和查重，但 Web 面板不会显示根目录之外的文件。
 
 ## 常见问题
 

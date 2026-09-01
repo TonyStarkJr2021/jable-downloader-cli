@@ -182,6 +182,56 @@ class LocalFileTests(unittest.TestCase):
             )
             self.assertEqual(found, expected)
 
+    def test_existing_media_finds_legacy_root_and_classified_directories(self):
+        with tempfile.TemporaryDirectory() as root:
+            root_path = Path(root)
+            downloads = root_path / "downloads"
+            media = root_path / "media"
+            downloads.mkdir()
+            (media / "JAV").mkdir(parents=True)
+            (media / "FC2").mkdir()
+            legacy = media / "IPX-850.mp4"
+            classified = media / "FC2" / "FC2-PPV-4968748.mp4"
+            legacy.write_bytes(b"legacy")
+            classified.write_bytes(b"classified")
+            config = {
+                "download_dir": str(downloads),
+                "media_dir": str(media),
+                "jav_media_dir": str(media / "JAV"),
+                "fc2_media_dir": str(media / "FC2"),
+            }
+            self.assertEqual(MODULE.existing_media("IPX-850", config), legacy)
+            self.assertEqual(
+                MODULE.existing_media("FC2-PPV-4968748", config), classified
+            )
+
+    def test_media_destination_classifies_jav_and_fc2(self):
+        config = {"media_dir": "/media"}
+        self.assertEqual(MODULE.media_destination("IPX-850", config), Path("/media/JAV"))
+        self.assertEqual(
+            MODULE.media_destination("FC2-PPV-4968748", config), Path("/media/FC2")
+        )
+
+    def test_move_to_media_creates_fc2_destination_without_overwrite(self):
+        with tempfile.TemporaryDirectory() as root:
+            root_path = Path(root)
+            finished = root_path / "downloads" / "FC2-PPV-4968748.mp4"
+            finished.parent.mkdir()
+            finished.write_bytes(b"media")
+            config = {
+                "work_dir": str(root_path / "work"),
+                "media_dir": str(root_path / "media"),
+            }
+            with mock.patch("builtins.print"):
+                target = MODULE.move_to_media(
+                    finished, "FC2-PPV-4968748", config
+                )
+            self.assertEqual(
+                target, root_path / "media" / "FC2" / "FC2-PPV-4968748.mp4"
+            )
+            self.assertEqual(target.read_bytes(), b"media")
+            self.assertFalse(finished.exists())
+
     def test_load_config_reports_missing_fields(self):
         with tempfile.TemporaryDirectory() as root:
             path = Path(root) / "config.json"
@@ -211,6 +261,8 @@ class LocalFileTests(unittest.TestCase):
             self.assertEqual(config["jable_site"], "https://jable.tv")
             self.assertEqual(config["missav_site"], "https://missav.ai")
             self.assertTrue(config["missav_hls_relay"])
+            self.assertEqual(Path(config["jav_media_dir"]), Path("/tmp/media") / "JAV")
+            self.assertEqual(Path(config["fc2_media_dir"]), Path("/tmp/media") / "FC2")
 
     def test_duration_rounding(self):
         self.assertEqual(MODULE.duration_text(9180.245), "02:33:00")

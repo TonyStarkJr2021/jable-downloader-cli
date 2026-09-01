@@ -489,6 +489,8 @@ config.update({
     "work_dir": os.path.join(root, "work"),
     "download_dir": os.path.join(root, "downloads"),
     "media_dir": os.path.join(root, "media"),
+    "jav_media_dir": os.path.join(root, "media", "JAV"),
+    "fc2_media_dir": os.path.join(root, "media", "FC2"),
     "browser_profile": os.path.join(state, "chromium-profile"),
     "n_m3u8dl_re": downloader,
     "chromium": chromium,
@@ -512,6 +514,9 @@ config.setdefault("missav_language", "en")
 config.setdefault("missav_m3u8_preferred_domains", ["surrit.com"])
 config.setdefault("missav_allow_m3u8_fallback", True)
 config.setdefault("missav_hls_relay", True)
+media_root = config.get("media_dir", os.path.join(root, "media"))
+config.setdefault("jav_media_dir", os.path.join(media_root, "JAV"))
+config.setdefault("fc2_media_dir", os.path.join(media_root, "FC2"))
 with open(path, "w", encoding="utf-8") as handle:
     json.dump(config, handle, ensure_ascii=False, indent=2)
     handle.write("\n")
@@ -522,7 +527,7 @@ chmod 0600 "$CONFIG_FILE"
 mapfile -t DATA_DIRS < <(python3 - "$CONFIG_FILE" <<'PY'
 import json, sys
 config = json.load(open(sys.argv[1], encoding="utf-8"))
-for key in ("work_dir", "download_dir", "media_dir", "browser_profile"):
+for key in ("work_dir", "download_dir", "media_dir", "jav_media_dir", "fc2_media_dir", "browser_profile"):
     print(config[key])
 PY
 )

@@ -191,6 +191,9 @@ def load_config(path: Path | None = None) -> dict[str, Any]:
     config.setdefault("missav_m3u8_preferred_domains", ["surrit.com"])
     config.setdefault("missav_allow_m3u8_fallback", True)
     config.setdefault("missav_hls_relay", True)
+    media_root = Path(str(config["media_dir"]))
+    config.setdefault("jav_media_dir", str(media_root / "JAV"))
+    config.setdefault("fc2_media_dir", str(media_root / "FC2"))
     return config
 
 
@@ -242,12 +245,49 @@ def find_missav_detail_url(html: str, code: str, base: str) -> str | None:
     return next(iter(dict.fromkeys(candidates)), None)
 
 
+def media_directories(config: dict[str, Any]) -> tuple[Path, ...]:
+    """Return the media root and classified destinations without duplicates."""
+    root = Path(str(config["media_dir"]))
+    configured = (
+        root,
+        Path(str(config.get("jav_media_dir", root / "JAV"))),
+        Path(str(config.get("fc2_media_dir", root / "FC2"))),
+    )
+    return tuple(dict.fromkeys(configured))
+
+
+def media_destination(code: str, config: dict[str, Any]) -> Path:
+    """Choose the stable library directory from the normalized identifier."""
+    root = Path(str(config["media_dir"]))
+    key = "fc2_media_dir" if code.startswith("FC2-PPV-") else "jav_media_dir"
+    default_name = "FC2" if key == "fc2_media_dir" else "JAV"
+    return Path(str(config.get(key, root / default_name)))
+
+
 def existing_media(code: str, config: dict[str, Any]) -> Path | None:
-    for base_key in ("download_dir", "media_dir"):
-        base = Path(config[base_key])
+    locations = (Path(str(config["download_dir"])), *media_directories(config))
+    search_roots: list[Path] = []
+    for location in locations:
+        try:
+            resolved = location.resolve()
+        except OSError:
+            resolved = location.absolute()
+        if any(resolved == root or root in resolved.parents for root in search_roots):
+            continue
+        search_roots.append(resolved)
+
+    seen: set[Path] = set()
+    for base in search_roots:
         if not base.is_dir():
             continue
-        for candidate in base.iterdir():
+        for candidate in base.rglob("*"):
+            try:
+                identity = candidate.resolve()
+            except OSError:
+                continue
+            if identity in seen:
+                continue
+            seen.add(identity)
             if (
                 candidate.is_file()
                 and candidate.suffix.lower() in MEDIA_EXTENSIONS
@@ -269,8 +309,14 @@ def find_finished_file(code: str, download_dir: Path) -> Path | None:
 
 
 def ensure_directories(config: dict[str, Any]) -> None:
-    for key in ("work_dir", "download_dir", "media_dir", "browser_profile"):
-        Path(config[key]).mkdir(parents=True, exist_ok=True)
+    directories = (
+        Path(str(config["work_dir"])),
+        Path(str(config["download_dir"])),
+        Path(str(config["browser_profile"])),
+        *media_directories(config),
+    )
+    for directory in dict.fromkeys(directories):
+        directory.mkdir(parents=True, exist_ok=True)
 
 
 def raise_open_file_limit() -> None:
@@ -706,7 +752,9 @@ def run_downloader(
 
 
 def move_to_media(finished: Path, code: str, config: dict[str, Any]) -> Path:
-    target = Path(config["media_dir"]) / finished.name
+    destination = media_destination(code, config)
+    destination.mkdir(parents=True, exist_ok=True)
+    target = destination / finished.name
     if target.exists():
         raise AppError(f"目标文件已经存在，未覆盖：{target}", 7)
     print("\n📦 正在移动到正式媒体库...")

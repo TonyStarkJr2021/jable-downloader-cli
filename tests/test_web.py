@@ -9,7 +9,7 @@ from fastapi.testclient import TestClient
 
 from jable_web.app import create_app
 from jable_web.auth import LoginLimiter, hash_password, verify_password
-from jable_web.media import parse_range, resolve_media
+from jable_web.media import list_media, parse_range, resolve_media
 from jable_web.setup_config import build_config, write_atomic
 from jable_web.tasks import DownloadTaskManager, TerminalLogParser, safe_log_line
 
@@ -59,6 +59,19 @@ class MediaTests(unittest.TestCase):
             self.assertEqual(resolve_media(media, "IPX-850.mp4").name, "IPX-850.mp4")
             with self.assertRaises(FileNotFoundError):
                 resolve_media(media, "../IPX-850.mp4")
+
+    def test_classified_media_is_listed_and_resolved_recursively(self):
+        with tempfile.TemporaryDirectory() as root:
+            media = Path(root) / "media"
+            classified = media / "FC2" / "FC2-PPV-4968748.mp4"
+            classified.parent.mkdir(parents=True)
+            classified.write_bytes(b"data")
+            items = list_media(media)
+            self.assertEqual(items[0]["name"], "FC2/FC2-PPV-4968748.mp4")
+            self.assertEqual(items[0]["category"], "FC2")
+            self.assertEqual(
+                resolve_media(media, "FC2/FC2-PPV-4968748.mp4"), classified
+            )
 
     def test_signed_m3u8_is_redacted_from_web_log(self):
         line = "https://cdn.example/video.m3u8?token=secret"
@@ -188,6 +201,19 @@ class WebAppTests(unittest.TestCase):
         self.assertEqual(response.status_code, 206)
         self.assertEqual(response.content, b"2345")
         self.assertEqual(response.headers["content-range"], "bytes 2-5/10")
+
+    def test_classified_media_download_route_supports_nested_path(self):
+        classified = self.media / "JAV" / "IPX-851.mp4"
+        classified.parent.mkdir()
+        classified.write_bytes(b"abcdefghij")
+        self.login()
+        listing = self.client.get("/api/media").json()["items"]
+        self.assertIn("JAV/IPX-851.mp4", {item["name"] for item in listing})
+        response = self.client.get(
+            "/download/JAV/IPX-851.mp4", headers={"Range": "bytes=1-3"}
+        )
+        self.assertEqual(response.status_code, 206)
+        self.assertEqual(response.content, b"bcd")
 
     def test_account_settings_require_current_password_and_persist_hash(self):
         csrf = self.login()
