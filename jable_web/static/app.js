@@ -119,6 +119,12 @@ async function refreshStatus() {
     badge.className = `status-pill ${state}`;
     document.querySelector("#progress-bar").className = ["running", "searching"].includes(state) ? "running" : state;
     renderMagnets(task);
+    if (state === "alternatives" && window.lastAlternativesCode !== task.code) {
+      window.lastAlternativesCode = task.code;
+      window.requestAnimationFrame(() => {
+        document.querySelector("#magnet-section")?.scrollIntoView({ behavior: "smooth", block: "start" });
+      });
+    }
     const log = document.querySelector("#task-log");
     const visibleLogs = task.logs?.length ? [...task.logs] : [];
     if (task.progress) visibleLogs.push(task.progress);

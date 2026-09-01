@@ -13,6 +13,12 @@
 
 > 仅用于你有权访问和下载的内容。本项目不绕过 DRM、付费墙、验证码或访问控制。
 
+## v2.4.1
+
+- 修复升级后浏览器继续使用旧版前端脚本，导致任务已找到 JavBus 磁链但推荐区域不显示的问题。
+- CSS 与 JavaScript 地址包含当前版本号；以后升级后会自动加载对应版本，不需要手动清理浏览器缓存。
+- 找到 JavBus 候选磁链后，页面自动定位到推荐区域。
+
 ## v2.4.0
 
 - 支持 `300MIUM-1483`、`300mium1483`、`1PONDO-123456` 等数字与字母混合前缀的番号，同时继续拒绝纯数字和不安全字符。
@@ -193,7 +199,7 @@ bash <(curl -fsSL https://raw.githubusercontent.com/TonyStarkJr2021/jable-downlo
 
 完成一次 v2 升级后，后续版本也可以运行 `sudo /opt/jable-downloader/update.sh`。更新会保留 Web 账号、端口、下载配置、Chromium profile 和全部媒体；旧程序与更新前配置备份在 `/opt/jable-downloader/backups/`。
 
-升级到 v2.4.0 时，更新器会保留当前数据目录、配置、账号、端口、Chromium profile 和全部媒体。自动存储选择只用于没有现有配置的新安装，不会把已有 RAID 或系统盘媒体迁移到别处；也不会修改 Jellyfin、MetaTube、Docker、挂载点或外部 `update-media` 命令。
+升级到 v2.4.x 时，更新器会保留当前数据目录、配置、账号、端口、Chromium profile 和全部媒体。自动存储选择只用于没有现有配置的新安装，不会把已有 RAID 或系统盘媒体迁移到别处；也不会修改 Jellyfin、MetaTube、Docker、挂载点或外部 `update-media` 命令。
 
 从 v2.1.1 或 v2.2.0 升级时，更新器仍会安装安全迁移工具。新下载立即使用独立番号目录；旧的根目录或分类目录平铺文件仍可查重和浏览，按下节确认后再迁移。
 

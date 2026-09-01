@@ -175,6 +175,7 @@ class WebAppTests(unittest.TestCase):
 
     def login(self):
         page = self.client.get("/login")
+        self.assertIn('/static/app.css?v=2.4.1', page.text)
         token = re.search(r'name="csrf_token" value="([^"]+)"', page.text).group(1)
         response = self.client.post(
             "/login",
@@ -187,6 +188,7 @@ class WebAppTests(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 303)
         dashboard = self.client.get("/")
+        self.assertIn('/static/app.js?v=2.4.1', dashboard.text)
         return re.search(r'name="csrf-token" content="([^"]+)"', dashboard.text).group(1)
 
     def test_media_apis_require_login(self):
@@ -317,8 +319,11 @@ class FrontendRegressionTests(unittest.TestCase):
         self.assertIn("300MIUM-1483", dashboard)
         self.assertIn("服务器存储", dashboard)
         self.assertIn("JavBus 推荐磁链", dashboard)
+        self.assertIn("app.css?v={{ app_version }}", dashboard)
+        self.assertIn("app.js?v={{ app_version }}", dashboard)
         self.assertIn("复制磁力链接", script)
         self.assertIn("renderMagnets(task)", script)
+        self.assertIn("scrollIntoView", script)
         self.assertIn(".magnet-help", css)
         self.assertIn("white-space: nowrap", css)
         self.assertIn("log.scrollTop = log.scrollHeight", script)

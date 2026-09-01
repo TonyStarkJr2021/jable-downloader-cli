@@ -138,7 +138,7 @@ def create_app(
         response = templates.TemplateResponse(
             request=request,
             name="login.html",
-            context={"login_csrf": nonce},
+            context={"login_csrf": nonce, "app_version": __version__},
         )
         response.set_cookie(
             LOGIN_CSRF_COOKIE,
@@ -168,6 +168,7 @@ def create_app(
                 context={
                     "login_csrf": supplied_csrf,
                     "error": f"尝试次数过多，请在 {retry} 秒后重试",
+                    "app_version": __version__,
                 },
             )
         supplied_user = str(form.get("username", ""))[:128]
@@ -180,7 +181,11 @@ def create_app(
                 request=request,
                 name="login.html",
                 status_code=401,
-                context={"login_csrf": supplied_csrf, "error": "用户名或密码错误"},
+                context={
+                    "login_csrf": supplied_csrf,
+                    "error": "用户名或密码错误",
+                    "app_version": __version__,
+                },
             )
         app.state.limiter.clear(key)
         token, _session = app.state.sessions.create(app.state.username)
@@ -217,7 +222,11 @@ def create_app(
         return templates.TemplateResponse(
             request=request,
             name="dashboard.html",
-            context={"username": session.username, "csrf_token": session.csrf_token},
+            context={
+                "username": session.username,
+                "csrf_token": session.csrf_token,
+                "app_version": __version__,
+            },
         )
 
     @app.get("/settings", response_class=HTMLResponse)
@@ -232,6 +241,7 @@ def create_app(
                 "username": app.state.username,
                 "port": app.state.web_port,
                 "csrf_token": session.csrf_token,
+                "app_version": __version__,
             },
         )
 
