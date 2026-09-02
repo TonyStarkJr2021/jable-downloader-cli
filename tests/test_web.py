@@ -9,7 +9,13 @@ from fastapi.testclient import TestClient
 
 from jable_web.app import create_app
 from jable_web.auth import LoginLimiter, hash_password, verify_password
-from jable_web.media import list_media, parse_range, resolve_media
+from jable_web.media import (
+    HiddenMediaStore,
+    delete_media_files,
+    list_media,
+    parse_range,
+    resolve_media,
+)
 from jable_web.setup_config import build_config, write_atomic
 from jable_web.tasks import DownloadTaskManager, TerminalLogParser, safe_log_line
 
@@ -83,6 +89,23 @@ class MediaTests(unittest.TestCase):
                 ),
                 classified,
             )
+
+    def test_hidden_store_and_file_delete_are_separate_actions(self):
+        with tempfile.TemporaryDirectory() as root:
+            base = Path(root)
+            media = base / "media"
+            video = media / "JAV" / "IPX-850" / "IPX-850.mp4"
+            video.parent.mkdir(parents=True)
+            video.write_bytes(b"data")
+            (video.parent / "poster.jpg").write_bytes(b"image")
+            store = HiddenMediaStore(base / "hidden.json")
+            name = "JAV/IPX-850/IPX-850.mp4"
+            store.add([name])
+            self.assertIn(name, store.hidden())
+            self.assertTrue(video.is_file())
+            delete_media_files(media, [name])
+            self.assertFalse(video.exists())
+            self.assertFalse(video.parent.exists())
 
     def test_signed_m3u8_is_redacted_from_web_log(self):
         line = "https://cdn.example/video.m3u8?token=secret"
@@ -165,8 +188,14 @@ class WebAppTests(unittest.TestCase):
             json.dumps({"media_dir": str(self.media)}), encoding="utf-8"
         )
         self.tasks = DummyTaskManager()
+        self.hidden_media = root / "hidden-media.json"
         self.client = TestClient(
-            create_app(self.web_config, self.cli_config, self.tasks)
+            create_app(
+                self.web_config,
+                self.cli_config,
+                self.tasks,
+                hidden_media_path=self.hidden_media,
+            )
         )
 
     def tearDown(self):
@@ -175,7 +204,7 @@ class WebAppTests(unittest.TestCase):
 
     def login(self):
         page = self.client.get("/login")
-        self.assertIn('/static/app.css?v=2.4.1', page.text)
+        self.assertIn('/static/app.css?v=2.5.0', page.text)
         token = re.search(r'name="csrf_token" value="([^"]+)"', page.text).group(1)
         response = self.client.post(
             "/login",
@@ -188,7 +217,7 @@ class WebAppTests(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 303)
         dashboard = self.client.get("/")
-        self.assertIn('/static/app.js?v=2.4.1', dashboard.text)
+        self.assertIn('/static/app.js?v=2.5.0', dashboard.text)
         return re.search(r'name="csrf-token" content="([^"]+)"', dashboard.text).group(1)
 
     def test_media_apis_require_login(self):
@@ -230,6 +259,48 @@ class WebAppTests(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 206)
         self.assertEqual(response.content, b"bcd")
+
+    def test_completed_items_can_be_hidden_without_deleting_or_deleted_with_file(self):
+        csrf = self.login()
+        hidden = self.client.post(
+            "/api/media/actions",
+            json={"action": "hide", "items": ["IPX-850.mp4"]},
+            headers={"X-CSRF-Token": csrf},
+        )
+        self.assertEqual(hidden.status_code, 200)
+        self.assertTrue((self.media / "IPX-850.mp4").is_file())
+        listing = self.client.get("/api/media").json()
+        self.assertEqual(listing["items"], [])
+        self.assertEqual(listing["total_count"], 1)
+
+        deleted = self.client.post(
+            "/api/media/actions",
+            json={"action": "delete", "items": ["IPX-850.mp4"]},
+            headers={"X-CSRF-Token": csrf},
+        )
+        self.assertEqual(deleted.status_code, 200)
+        self.assertFalse((self.media / "IPX-850.mp4").exists())
+        self.assertEqual(self.client.get("/api/media").json()["total_count"], 0)
+
+    def test_completed_item_actions_require_csrf_and_reject_traversal(self):
+        csrf = self.login()
+        forbidden = self.client.post(
+            "/api/media/actions",
+            json={"action": "hide", "items": ["IPX-850.mp4"]},
+        )
+        self.assertEqual(forbidden.status_code, 403)
+        malformed = self.client.post(
+            "/api/media/actions",
+            json=[],
+            headers={"X-CSRF-Token": csrf},
+        )
+        self.assertEqual(malformed.status_code, 400)
+        traversal = self.client.post(
+            "/api/media/actions",
+            json={"action": "delete", "items": ["../IPX-850.mp4"]},
+            headers={"X-CSRF-Token": csrf},
+        )
+        self.assertEqual(traversal.status_code, 404)
 
     def test_account_settings_require_current_password_and_persist_hash(self):
         csrf = self.login()
@@ -324,6 +395,13 @@ class FrontendRegressionTests(unittest.TestCase):
         self.assertIn("复制磁力链接", script)
         self.assertIn("renderMagnets(task)", script)
         self.assertIn("scrollIntoView", script)
+        self.assertIn("showCurrentTask", script)
+        self.assertIn("renderIdleTask", script)
+        self.assertIn('performMediaAction("hide")', script)
+        self.assertIn('performMediaAction("delete")', script)
+        self.assertIn("仅从列表移除", dashboard)
+        self.assertIn("删除任务及文件", dashboard)
+        self.assertIn("部作品", dashboard)
         self.assertIn(".magnet-help", css)
         self.assertIn("white-space: nowrap", css)
         self.assertIn("log.scrollTop = log.scrollHeight", script)

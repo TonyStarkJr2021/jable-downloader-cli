@@ -2,13 +2,58 @@ from __future__ import annotations
 
 import json
 import mimetypes
+import os
+import shutil
 import subprocess
+import threading
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote
 
 
 MEDIA_EXTENSIONS = {".mp4", ".mkv", ".ts", ".m4v", ".mov"}
+
+
+class HiddenMediaStore:
+    """Persist completed-list entries hidden by the user without touching media."""
+
+    def __init__(self, path: Path) -> None:
+        self.path = path
+        self._lock = threading.Lock()
+
+    def _read(self) -> set[str]:
+        try:
+            payload = json.loads(self.path.read_text(encoding="utf-8"))
+        except (FileNotFoundError, OSError, ValueError, TypeError):
+            return set()
+        values = payload.get("hidden", []) if isinstance(payload, dict) else []
+        return {value for value in values if isinstance(value, str) and value}
+
+    def _write(self, values: set[str]) -> None:
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = self.path.with_name(f".{self.path.name}.tmp")
+        temporary.write_text(
+            json.dumps({"hidden": sorted(values)}, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        os.chmod(temporary, 0o600)
+        os.replace(temporary, self.path)
+
+    def hidden(self) -> set[str]:
+        with self._lock:
+            return self._read()
+
+    def add(self, names: list[str]) -> None:
+        with self._lock:
+            values = self._read()
+            values.update(names)
+            self._write(values)
+
+    def discard(self, names: list[str]) -> None:
+        with self._lock:
+            values = self._read()
+            values.difference_update(names)
+            self._write(values)
 
 
 def resolve_media(media_dir: Path, filename: str) -> Path:
@@ -25,6 +70,33 @@ def resolve_media(media_dir: Path, filename: str) -> Path:
     if candidate.suffix.lower() not in MEDIA_EXTENSIONS:
         raise FileNotFoundError(filename)
     return candidate
+
+
+def delete_media_file(media_dir: Path, filename: str) -> None:
+    delete_media_files(media_dir, [filename])
+
+
+def delete_media_files(media_dir: Path, filenames: list[str]) -> None:
+    """Delete selected media, including sidecars only in dedicated title folders."""
+
+    root = media_dir.resolve(strict=True)
+    paths = [resolve_media(root, filename) for filename in filenames]
+    title_directories = {
+        path.parent
+        for path in paths
+        if path.parent != root and path.parent.name.casefold() == path.stem.casefold()
+    }
+    standalone_files = {
+        path
+        for path in paths
+        if not any(path.is_relative_to(directory) for directory in title_directories)
+    }
+    for directory in sorted(
+        title_directories, key=lambda value: len(value.parts), reverse=True
+    ):
+        shutil.rmtree(directory)
+    for path in standalone_files:
+        path.unlink()
 
 
 def parse_range(value: str | None, size: int) -> tuple[int, int] | None:

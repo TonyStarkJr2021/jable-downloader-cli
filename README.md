@@ -13,6 +13,14 @@
 
 > 仅用于你有权访问和下载的内容。本项目不绕过 DRM、付费墙、验证码或访问控制。
 
+## v2.5.0
+
+- 新打开 Web 页面时不再回放上一次已结束任务的番号、状态和日志；当前仍在运行或搜索磁链的任务会继续显示。
+- “已完成”列表新增管理模式，可单选、全选和批量删除。
+- 删除时可选择“仅从列表移除”并保留服务器文件，或“删除任务及文件”永久删除对应视频及独立番号目录内的配套文件；删除服务器文件前会再次明确展示两种处理方式。
+- 被移出列表的项目记录保存在 `/var/lib/jable-downloader/hidden-media.json`，升级与重启后仍然生效。
+- 服务器媒体库计数文案由“个成品”调整为“部作品”，并继续统计服务器上实际存在的视频。
+
 ## v2.4.1
 
 - 修复升级后浏览器继续使用旧版前端脚本，导致任务已找到 JavBus 磁链但推荐区域不显示的问题。
@@ -295,7 +303,7 @@ sudo systemctl restart jable-downloader-web
 | `/opt/jable-downloader/` | 程序、Web 和管理脚本 |
 | `/etc/jable-downloader/config.json` | 下载配置 |
 | `/etc/jable-downloader/web.json` | Web 端口、用户名和密码哈希 |
-| `/var/lib/jable-downloader/` | Chromium profile |
+| `/var/lib/jable-downloader/` | Chromium profile 与已完成列表隐藏记录 |
 | `/usr/local/bin/n` | 全局 CLI 命令 |
 | `<数据根目录>/work` | 临时分片 |
 | `<数据根目录>/downloads` | 合并后的待归档文件 |

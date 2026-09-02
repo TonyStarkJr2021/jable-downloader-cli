@@ -56,7 +56,7 @@
           <p class="eyebrow">STORAGE</p>
           <h2>服务器媒体库</h2>
           <strong id="media-count">—</strong>
-          <span>个成品</span>
+          <span>部作品</span>
           <p class="muted compact">下载到本地只会复制，不会移除服务器文件。</p>
         </article>
       </section>
@@ -79,8 +79,20 @@
             <p class="eyebrow">COMPLETED</p>
             <h2>已完成</h2>
           </div>
-          <button id="refresh-media" class="ghost-button" type="button">刷新</button>
+          <div class="library-heading-actions">
+            <button id="refresh-media" class="ghost-button" type="button">刷新</button>
+            <button id="manage-media" class="ghost-button" type="button">管理</button>
+          </div>
         </div>
+        <div id="media-management" class="media-management" hidden>
+          <label class="select-all"><input id="select-all-media" type="checkbox"> 全选</label>
+          <span id="selected-media-count">已选择 0 项</span>
+          <div class="management-actions">
+            <button id="cancel-manage-media" class="ghost-button" type="button">取消</button>
+            <button id="open-delete-media" class="danger-button" type="button" disabled>删除选中</button>
+          </div>
+        </div>
+        <div id="media-action-message" class="media-action-message" role="status" aria-live="polite"></div>
         <div id="media-list" class="media-list" aria-live="polite">
           <div class="empty-state">正在读取媒体库…</div>
         </div>
@@ -94,6 +106,24 @@
       <dl id="detail-grid" class="detail-grid"></dl>
       <a id="download-link" class="primary-button download-link" href="#">下载到本地</a>
       <p class="muted compact">浏览器会按你的下载设置选择本地保存位置，服务器原文件继续保留。</p>
+    </dialog>
+
+    <dialog id="delete-media-dialog" class="media-dialog delete-media-dialog">
+      <button id="close-delete-media" class="dialog-close" aria-label="关闭">×</button>
+      <p class="eyebrow">DELETE COMPLETED</p>
+      <h2 id="delete-media-title">删除已完成项目</h2>
+      <p class="muted">请选择删除方式。仅移出列表会保留服务器文件；删除任务及文件无法撤销。</p>
+      <div class="delete-choice-list">
+        <button id="hide-selected-media" class="ghost-button delete-choice" type="button">
+          <strong>仅从列表移除</strong>
+          <span>服务器文件保持不变</span>
+        </button>
+        <button id="delete-selected-media" class="danger-button delete-choice" type="button">
+          <strong>删除任务及文件</strong>
+          <span>永久删除视频及独立番号目录内配套文件</span>
+        </button>
+      </div>
+      <button id="cancel-delete-media" class="ghost-button dialog-cancel" type="button">取消</button>
     </dialog>
   </body>
 </html>

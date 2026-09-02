@@ -25,7 +25,9 @@ from jable_web.auth import (
     verify_password,
 )
 from jable_web.media import (
+    HiddenMediaStore,
     content_disposition,
+    delete_media_files,
     iter_file,
     list_media,
     media_type,
@@ -52,6 +54,7 @@ def create_app(
     cli_config_path: Path | None = None,
     task_manager: DownloadTaskManager | None = None,
     restart_service: Callable[[], None] | None = None,
+    hidden_media_path: Path | None = None,
 ) -> FastAPI:
     web_config_path = web_config_path or Path(
         os.environ.get("JABLE_WEB_CONFIG", "/etc/jable-downloader/web.json")
@@ -69,6 +72,11 @@ def create_app(
     lockout_seconds = int(web_config.get("login_lockout_seconds", 900))
     command = str(web_config.get("command", "/usr/local/bin/n"))
     media_dir = Path(str(cli_config["media_dir"]))
+    hidden_media_path = hidden_media_path or Path(
+        os.environ.get(
+            "JABLE_HIDDEN_MEDIA_FILE", "/var/lib/jable-downloader/hidden-media.json"
+        )
+    )
 
     app = FastAPI(
         title="Jable + MissAV Downloader Web",
@@ -88,6 +96,7 @@ def create_app(
         javbus_timeout_seconds=int(cli_config.get("javbus_timeout_seconds", 15)),
     )
     app.state.media_dir = media_dir
+    app.state.hidden_media = HiddenMediaStore(hidden_media_path)
     app.state.username = username
     app.state.password_hash = password_hash
     app.state.secure_cookie = secure_cookie
@@ -345,7 +354,56 @@ def create_app(
     @app.get("/api/media")
     async def media_list(request: Request):
         require_session(request)
-        return {"items": list_media(app.state.media_dir)}
+        all_items = list_media(app.state.media_dir)
+        hidden = app.state.hidden_media.hidden()
+        return {
+            "items": [item for item in all_items if item["name"] not in hidden],
+            "total_count": len(all_items),
+        }
+
+    @app.post("/api/media/actions")
+    async def media_actions(request: Request):
+        session = require_session(request)
+        require_csrf(request, session)
+        try:
+            payload = await request.json()
+        except (ValueError, TypeError) as exc:
+            raise HTTPException(status_code=400, detail="请求格式错误") from exc
+        if not isinstance(payload, dict):
+            raise HTTPException(status_code=400, detail="请求格式错误")
+        action = payload.get("action")
+        raw_names = payload.get("items")
+        if action not in {"hide", "delete"}:
+            raise HTTPException(status_code=400, detail="不支持的删除方式")
+        if not isinstance(raw_names, list) or not 1 <= len(raw_names) <= 200:
+            raise HTTPException(status_code=400, detail="请选择 1–200 个已完成项目")
+        if not all(isinstance(name, str) and name for name in raw_names):
+            raise HTTPException(status_code=400, detail="已完成项目列表无效")
+        names = list(dict.fromkeys(raw_names))
+        if len(names) != len(raw_names):
+            raise HTTPException(status_code=400, detail="已完成项目列表包含重复项")
+        try:
+            for name in names:
+                resolve_media(app.state.media_dir, name)
+        except (FileNotFoundError, OSError) as exc:
+            raise HTTPException(status_code=404, detail="部分文件已不存在，请刷新列表") from exc
+
+        if action == "hide":
+            try:
+                app.state.hidden_media.add(names)
+            except OSError as exc:
+                raise HTTPException(status_code=500, detail="保存已完成列表失败") from exc
+            return {"message": f"已从列表移除 {len(names)} 项，服务器文件保持不变"}
+
+        try:
+            delete_media_files(app.state.media_dir, names)
+        except OSError as exc:
+            raise HTTPException(status_code=500, detail="删除服务器文件失败") from exc
+        try:
+            app.state.hidden_media.discard(names)
+        except OSError:
+            pass
+        return {"message": f"已删除 {len(names)} 项及对应服务器文件"}
 
     @app.get("/api/media/{filename:path}")
     async def media_detail(filename: str, request: Request):

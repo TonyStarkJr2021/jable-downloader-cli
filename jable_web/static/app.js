@@ -2,6 +2,10 @@ const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || 
 const form = document.querySelector("#download-form");
 const formMessage = document.querySelector("#form-message");
 const stateLabels = { idle: "空闲", running: "运行中", searching: "搜索磁链", alternatives: "发现磁链", completed: "已完成", failed: "失败" };
+let showCurrentTask = false;
+let managingMedia = false;
+let currentMediaItems = [];
+const selectedMedia = new Set();
 
 function formatBytes(value) {
   if (!Number.isFinite(value)) return "—";
@@ -109,10 +113,25 @@ async function requestJson(url, options = {}) {
   return payload;
 }
 
+function renderIdleTask() {
+  document.querySelector("#task-code").textContent = "暂无任务";
+  const badge = document.querySelector("#task-state");
+  badge.textContent = "空闲";
+  badge.className = "status-pill idle";
+  document.querySelector("#progress-bar").className = "";
+  document.querySelector("#task-log").textContent = "等待新任务…";
+  renderMagnets({ magnets: [] });
+}
+
 async function refreshStatus() {
   try {
     const task = await requestJson("/api/status");
     const state = task.state || "idle";
+    if (["running", "searching"].includes(state)) showCurrentTask = true;
+    if (!showCurrentTask) {
+      renderIdleTask();
+      return;
+    }
     document.querySelector("#task-code").textContent = task.code || "暂无任务";
     const badge = document.querySelector("#task-state");
     badge.textContent = stateLabels[state] || state;
@@ -146,25 +165,101 @@ async function refreshMedia() {
   const container = document.querySelector("#media-list");
   try {
     const data = await requestJson("/api/media");
-    document.querySelector("#media-count").textContent = data.items.length;
-    if (!data.items.length) {
-      container.innerHTML = '<div class="empty-state">媒体库暂时没有成品</div>';
+    currentMediaItems = Array.isArray(data.items) ? data.items : [];
+    const availableNames = new Set(currentMediaItems.map((item) => item.name));
+    for (const name of selectedMedia) {
+      if (!availableNames.has(name)) selectedMedia.delete(name);
+    }
+    document.querySelector("#media-count").textContent = Number.isInteger(data.total_count) ? data.total_count : currentMediaItems.length;
+    updateMediaSelection();
+    if (!currentMediaItems.length) {
+      container.innerHTML = '<div class="empty-state">已完成列表暂时为空</div>';
       return;
     }
-    container.replaceChildren(...data.items.map((item) => {
-      const row = document.createElement("button");
-      row.type = "button";
+    container.replaceChildren(...currentMediaItems.map((item) => {
+      const row = document.createElement("div");
       row.className = "media-row";
       row.dataset.filename = item.name;
-      row.innerHTML = `<span class="media-code"></span><span class="media-meta"></span><span class="row-action">查看</span>`;
-      row.querySelector(".media-code").textContent = item.code;
-      row.querySelector(".media-meta").textContent = `${item.category} · ${formatBytes(item.size)} · ${formatDate(item.modified_at)}`;
-      row.addEventListener("click", () => showMedia(item.name));
+
+      const select = document.createElement("label");
+      select.className = "media-select";
+      const checkbox = document.createElement("input");
+      checkbox.type = "checkbox";
+      checkbox.checked = selectedMedia.has(item.name);
+      checkbox.setAttribute("aria-label", `选择 ${item.code}`);
+      checkbox.addEventListener("change", () => {
+        if (checkbox.checked) selectedMedia.add(item.name);
+        else selectedMedia.delete(item.name);
+        updateMediaSelection();
+      });
+      select.appendChild(checkbox);
+
+      const open = document.createElement("button");
+      open.type = "button";
+      open.className = "media-open";
+      open.innerHTML = `<span class="media-code"></span><span class="media-meta"></span><span class="row-action"></span>`;
+      open.querySelector(".media-code").textContent = item.code;
+      open.querySelector(".media-meta").textContent = `${item.category} · ${formatBytes(item.size)} · ${formatDate(item.modified_at)}`;
+      open.querySelector(".row-action").textContent = managingMedia ? "选择" : "查看";
+      open.addEventListener("click", () => {
+        if (!managingMedia) {
+          showMedia(item.name);
+          return;
+        }
+        checkbox.checked = !checkbox.checked;
+        checkbox.dispatchEvent(new Event("change"));
+      });
+      row.append(select, open);
       return row;
     }));
   } catch (error) {
     container.innerHTML = `<div class="empty-state"></div>`;
     container.firstElementChild.textContent = error.message;
+  }
+}
+
+function updateMediaSelection() {
+  document.querySelector("#selected-media-count").textContent = `已选择 ${selectedMedia.size} 项`;
+  document.querySelector("#open-delete-media").disabled = selectedMedia.size === 0;
+  const selectAll = document.querySelector("#select-all-media");
+  const selectedVisible = currentMediaItems.filter((item) => selectedMedia.has(item.name)).length;
+  selectAll.checked = currentMediaItems.length > 0 && selectedVisible === currentMediaItems.length;
+  selectAll.indeterminate = selectedVisible > 0 && selectedVisible < currentMediaItems.length;
+}
+
+function setMediaManagement(enabled) {
+  managingMedia = enabled;
+  document.querySelector(".library-section").classList.toggle("managing", enabled);
+  document.querySelector("#media-management").hidden = !enabled;
+  document.querySelector("#manage-media").hidden = enabled;
+  if (!enabled) selectedMedia.clear();
+  updateMediaSelection();
+  refreshMedia();
+}
+
+function openDeleteMediaDialog() {
+  if (!selectedMedia.size) return;
+  document.querySelector("#delete-media-title").textContent = `删除已选择的 ${selectedMedia.size} 项`;
+  document.querySelector("#delete-media-dialog").showModal();
+}
+
+async function performMediaAction(action) {
+  const message = document.querySelector("#media-action-message");
+  const dialog = document.querySelector("#delete-media-dialog");
+  const items = [...selectedMedia];
+  try {
+    const result = await requestJson("/api/media/actions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken },
+      body: JSON.stringify({ action, items }),
+    });
+    dialog.close();
+    message.className = "media-action-message";
+    message.textContent = result.message;
+    setMediaManagement(false);
+  } catch (error) {
+    message.className = "media-action-message error";
+    message.textContent = error.message;
   }
 }
 
@@ -206,6 +301,7 @@ form?.addEventListener("submit", async (event) => {
       body: JSON.stringify({ code }),
     });
     formMessage.textContent = `${result.code} 已加入任务`;
+    showCurrentTask = true;
     form.reset();
     refreshStatus();
   } catch (error) {
@@ -214,6 +310,19 @@ form?.addEventListener("submit", async (event) => {
 });
 
 document.querySelector("#refresh-media")?.addEventListener("click", refreshMedia);
+document.querySelector("#manage-media")?.addEventListener("click", () => setMediaManagement(true));
+document.querySelector("#cancel-manage-media")?.addEventListener("click", () => setMediaManagement(false));
+document.querySelector("#select-all-media")?.addEventListener("change", (event) => {
+  selectedMedia.clear();
+  if (event.currentTarget.checked) currentMediaItems.forEach((item) => selectedMedia.add(item.name));
+  updateMediaSelection();
+  refreshMedia();
+});
+document.querySelector("#open-delete-media")?.addEventListener("click", openDeleteMediaDialog);
+document.querySelector("#hide-selected-media")?.addEventListener("click", () => performMediaAction("hide"));
+document.querySelector("#delete-selected-media")?.addEventListener("click", () => performMediaAction("delete"));
+document.querySelector("#close-delete-media")?.addEventListener("click", () => document.querySelector("#delete-media-dialog").close());
+document.querySelector("#cancel-delete-media")?.addEventListener("click", () => document.querySelector("#delete-media-dialog").close());
 document.querySelector("#close-dialog")?.addEventListener("click", () => document.querySelector("#media-dialog").close());
 document.querySelector("#media-dialog")?.addEventListener("click", (event) => {
   if (event.target === event.currentTarget) event.currentTarget.close();
