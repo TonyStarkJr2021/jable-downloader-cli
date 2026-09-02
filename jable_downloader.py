@@ -56,10 +56,12 @@ PACKER_PATTERN = re.compile(
     r"\.split\(\s*['\"]\|['\"]\s*\)",
     re.DOTALL,
 )
-M3U8_URL_PATTERN = re.compile(
-    r"https?://[^\s'\"<>\\;]+\.m3u8(?:\?[^\s'\"<>\\;]*)?",
+HLS_URL_PATTERN = re.compile(
+    r"https?://[^\s'\"<>\\;]+(?:\.m3u8|/master\.txt)(?:\?[^\s'\"<>\\;]*)?",
     re.IGNORECASE,
 )
+# Kept for callers that imported the pre-v2.6.1 constant directly.
+M3U8_URL_PATTERN = HLS_URL_PATTERN
 
 
 class AppError(RuntimeError):
@@ -512,12 +514,21 @@ def safe_stream_url(url: str) -> bool:
     )
 
 
+def is_hls_candidate_url(url: str) -> bool:
+    """Recognize normal and intentionally disguised HLS playlist URLs."""
+    if not safe_stream_url(url):
+        return False
+    path = urlparse(url).path.lower()
+    return path.endswith(".m3u8") or path.endswith("/master.txt")
+
+
 def extract_packed_m3u8_urls(html: str) -> list[str]:
+    """Extract HLS URLs while retaining the historical public helper name."""
     urls: list[str] = []
     for payload in unpack_packer_payloads(html):
-        for match in M3U8_URL_PATTERN.finditer(payload):
+        for match in HLS_URL_PATTERN.finditer(payload):
             url = match.group(0)
-            if safe_stream_url(url) and url not in urls:
+            if is_hls_candidate_url(url) and url not in urls:
                 urls.append(url)
     return urls
 
@@ -534,13 +545,13 @@ def choose_m3u8_url(urls: list[str], domains: list[str]) -> str | None:
 
 
 def extract_m3u8_urls(text: str) -> list[str]:
-    """Extract safe HLS URLs from plain, escaped and P.A.C.K.E.R. scripts."""
+    """Extract safe HLS URLs, including SupJav's master.txt playlists."""
     values = [text.replace("\\/", "/"), *unpack_packer_payloads(text)]
     urls: list[str] = []
     for value in values:
-        for match in M3U8_URL_PATTERN.finditer(value):
+        for match in HLS_URL_PATTERN.finditer(value):
             url = match.group(0).replace("&amp;", "&")
-            if safe_stream_url(url) and url not in urls:
+            if is_hls_candidate_url(url) and url not in urls:
                 urls.append(url)
     return urls
 
@@ -606,7 +617,7 @@ def stream_request_headers(stream: CapturedStream) -> dict[str, str]:
 
 def inspect_stream_quality(stream: CapturedStream, config: dict[str, Any]) -> CapturedStream:
     """Probe public HLS metadata without downloading media segments."""
-    if browser_requests is None or ".m3u8" not in stream.url.lower():
+    if browser_requests is None or not is_hls_candidate_url(stream.url):
         return stream
     timeout = max(5, int(config.get("stream_probe_timeout_seconds", 12)))
     try:
@@ -789,10 +800,6 @@ def capture_supjav_static(
                 errors.append("详情页没有播放器服务器")
                 continue
             for server_name, link in servers:
-                # SupJav's ST entry is a direct-MP4 host. This provider is kept
-                # HLS-only so the existing verified downloader remains in use.
-                if server_name == "ST":
-                    continue
                 wrapper_url = f"https://lk1.supremejav.com/supjav.php?l={quote(link)}&bg=undefined"
                 bodies: list[tuple[str, str]] = []
                 try:
@@ -922,6 +929,7 @@ def capture_from_provider(
 
     preferred: list[str] = []
     fallback: list[str] = []
+    request_referers: dict[str, str] = {}
     domains = preferred_domains(config, source)
     detail_url = request.detail_url if request.source == source else None
     stream: CapturedStream | None = None
@@ -959,37 +967,47 @@ def capture_from_provider(
                 if response is None:
                     raise AppError("搜索页没有返回 HTTP 响应", 2)
                 print(f"   HTTP：{response.status}")
-                if response.status != 200:
-                    raise AppError(f"搜索页面访问失败（HTTP {response.status}）", 2)
+                # A browser verification page may complete after the initial
+                # navigation response. Trust only a subsequently rendered,
+                # exact same-provider result; otherwise preserve the HTTP error.
+                search_html = page.content()
                 if source == "jable":
-                    detail_url = find_detail_url(page.content(), request.code, base)
+                    detail_url = find_detail_url(search_html, request.code, base)
                 elif source == "missav":
                     detail_url = find_missav_detail_url(
-                        page.content(), request.code, page.url
+                        search_html, request.code, page.url
                     )
                 else:
                     detail_urls = find_supjav_detail_urls(
-                        page.content(), request.code, page.url
+                        search_html, request.code, page.url
                     )
                     detail_url = detail_urls[0] if detail_urls else None
+                if response.status != 200 and not detail_url:
+                    raise AppError(f"搜索页面访问失败（HTTP {response.status}）", 2)
                 if not detail_url:
                     raise AppError(f"{source.upper()} 没找到 {request.code}", 3)
             labels = {"jable": "Jable", "missav": "MissAV", "supjav": "SupJav"}
             print(f"✅ 来源：{labels[source]}")
             print(f"✅ 详情页：{detail_url}\n")
 
-            def record(url: str) -> None:
-                if ".m3u8" not in url.lower():
+            def record(url: str, referer: str = "") -> None:
+                if not is_hls_candidate_url(url):
                     return
                 matched = any(domain in url.lower() for domain in domains)
                 bucket = preferred if matched else fallback
                 if url not in bucket:
                     bucket.append(url)
+                    if referer:
+                        request_referers[url] = referer
                     if matched:
                         print("🎯 捕获主视频 M3U8")
                         print("   地址已隐藏，将立即交给下载器\n")
 
-            page.on("request", lambda browser_request: record(browser_request.url))
+            def record_request(browser_request: Any) -> None:
+                headers = browser_request.headers
+                record(browser_request.url, str(headers.get("referer", "")))
+
+            page.on("request", record_request)
             page.on("response", lambda browser_response: record(browser_response.url))
             context.on(
                 "page",
@@ -1028,7 +1046,7 @@ def capture_from_provider(
                 stream = CapturedStream(
                     url=selected,
                     source=source,
-                    referer=str(detail_url),
+                    referer=request_referers.get(selected, str(detail_url)),
                     user_agent=user_agent,
                     cookies=cookie_map,
                 )

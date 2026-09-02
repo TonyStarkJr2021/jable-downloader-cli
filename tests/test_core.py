@@ -191,6 +191,65 @@ class NormalizeCodeTests(unittest.TestCase):
         self.assertFalse(MODULE.hls_playlist_usable("#EXTM3U\n#EXT-X-VERSION:6\n"))
         self.assertTrue(MODULE.hls_playlist_usable("#EXTM3U\n#EXTINF:4.0,\na.ts\n"))
 
+    def test_supjav_disguised_master_playlist_is_recognized(self):
+        disguised = "https://cdn.example/path/.urlset/master.txt?token=value"
+        self.assertTrue(MODULE.is_hls_candidate_url(disguised))
+        self.assertEqual(MODULE.extract_m3u8_urls(f'file: "{disguised}"'), [disguised])
+        self.assertFalse(MODULE.is_hls_candidate_url("https://cdn.example/notes.txt"))
+
+    def test_quality_probe_accepts_disguised_supjav_master(self):
+        master_url = "https://cdn.example/path/.urlset/master.txt"
+        variant_url = "https://cdn.example/path/1080/video.m3u8"
+        master = types.SimpleNamespace(
+            status_code=200,
+            url=master_url,
+            text=(
+                "#EXTM3U\n"
+                "#EXT-X-STREAM-INF:BANDWIDTH=2684340,RESOLUTION=1920x1080\n"
+                "1080/video.m3u8\n"
+            ),
+        )
+        variant = types.SimpleNamespace(
+            status_code=200,
+            url=variant_url,
+            text="#EXTM3U\n#EXTINF:10.0,\nsegment.ts\n",
+        )
+        requests = types.SimpleNamespace(get=mock.Mock(side_effect=[master, variant]))
+        stream = MODULE.CapturedStream(master_url, "supjav", "https://player.example/", "UA", {})
+        with mock.patch.object(MODULE, "browser_requests", requests):
+            inspected = MODULE.inspect_stream_quality(
+                stream, {"stream_probe_timeout_seconds": 12}
+            )
+        self.assertEqual(
+            (inspected.width, inspected.height, inspected.bandwidth, inspected.verified),
+            (1920, 1080, 2684340, True),
+        )
+
+    def test_same_resolution_prefers_higher_missav_bitrate(self):
+        missav = MODULE.CapturedStream(
+            "https://missav.example/master.m3u8",
+            "missav",
+            "",
+            "",
+            {},
+            width=1920,
+            height=1080,
+            bandwidth=4179000,
+        )
+        supjav = MODULE.CapturedStream(
+            "https://supjav.example/.urlset/master.txt",
+            "supjav",
+            "",
+            "",
+            {},
+            width=1920,
+            height=1080,
+            bandwidth=2684340,
+        )
+        self.assertGreater(
+            MODULE.stream_quality_key(missav), MODULE.stream_quality_key(supjav)
+        )
+
 
 class MissAVStaticCaptureTests(unittest.TestCase):
     PACKED = (
