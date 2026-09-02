@@ -24,6 +24,7 @@
   "supjav_min_duration_seconds": 600,
   "supjav_proxy_url": "",
   "supjav_proxy_download": false,
+  "supjav_ipv6_first": true,
   "supjav_adblock_enabled": true,
   "supjav_play_attempts": 10,
   "provider_probe_workers": 3,

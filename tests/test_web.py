@@ -1,5 +1,7 @@
+import io
 import json
 import re
+import signal
 import tempfile
 import types
 import unittest
@@ -22,6 +24,7 @@ from jable_web.tasks import (
     DownloadTaskManager,
     PreservedLogBuffer,
     TerminalLogParser,
+    TaskNotRunningError,
     safe_log_line,
 )
 
@@ -36,6 +39,12 @@ class DummyTaskManager:
 
     def start(self, code):
         self.started.append(code)
+        return "IPX-850"
+
+    def cancel(self):
+        if self.state not in {"running", "searching"}:
+            raise TaskNotRunningError("当前没有可取消的任务")
+        self.state = "cancelling"
         return "IPX-850"
 
 
@@ -157,6 +166,85 @@ class MediaTests(unittest.TestCase):
         self.assertEqual(popen.call_args.kwargs["env"]["PYTHONUNBUFFERED"], "1")
         self.assertEqual(manager.snapshot()["source"], "fc2")
 
+    def test_task_manager_cancels_the_active_process_group(self):
+        process = mock.Mock()
+        process.poll.return_value = None
+        process.pid = 2468
+        with (
+            mock.patch("jable_web.tasks.subprocess.Popen", return_value=process),
+            mock.patch("jable_web.tasks.threading.Thread.start"),
+            mock.patch("jable_web.tasks.os.name", "posix"),
+            mock.patch("jable_web.tasks.os.killpg", create=True) as killpg,
+        ):
+            manager = DownloadTaskManager("/usr/local/bin/n")
+            manager.start("IPX-850")
+            self.assertEqual(manager.cancel(), "IPX-850")
+        killpg.assert_called_once_with(2468, signal.SIGTERM)
+        self.assertEqual(manager.snapshot()["state"], "cancelling")
+
+    def test_cancelled_process_finishes_as_cancelled_without_javbus_lookup(self):
+        process = mock.Mock()
+        process.poll.return_value = None
+        process.stdout = io.BytesIO(b"")
+        process.wait.return_value = 3
+        lookup = mock.Mock(return_value=[])
+        with (
+            mock.patch("jable_web.tasks.subprocess.Popen", return_value=process),
+            mock.patch("jable_web.tasks.threading.Thread.start"),
+        ):
+            manager = DownloadTaskManager("/usr/local/bin/n", magnet_lookup=lookup)
+            manager.start("IPX-850")
+            with mock.patch.object(manager, "_signal_process"):
+                manager.cancel()
+            manager._collect(process, None)
+
+        task = manager.snapshot()
+        self.assertEqual(task["state"], "idle")
+        self.assertIsNone(task["code"])
+        self.assertEqual(task["logs"], [])
+        lookup.assert_not_called()
+
+    def test_cancel_removes_only_matching_task_files_and_records(self):
+        with tempfile.TemporaryDirectory() as root:
+            base = Path(root)
+            work = base / "work"
+            downloads = base / "downloads"
+            media = base / "media" / "JAV"
+            for directory in (work, downloads, media):
+                directory.mkdir(parents=True)
+            (work / "IPX-850__supjav_1").mkdir()
+            (work / "IPX-850__supjav_1" / "segment.ts").write_bytes(b"partial")
+            (downloads / "IPX-850__supjav_1.mp4").write_bytes(b"partial")
+            (media / "IPX-850").mkdir()
+            (media / "IPX-850" / "IPX-850.mp4").write_bytes(b"partial")
+            unrelated = downloads / "IPX-851.mp4"
+            unrelated.write_bytes(b"keep")
+
+            process = mock.Mock()
+            process.poll.return_value = None
+            process.stdout = io.BytesIO(b"")
+            process.wait.return_value = -15
+            with (
+                mock.patch("jable_web.tasks.subprocess.Popen", return_value=process),
+                mock.patch("jable_web.tasks.threading.Thread.start"),
+            ):
+                manager = DownloadTaskManager(
+                    "/usr/local/bin/n",
+                    work_dir=work,
+                    download_dir=downloads,
+                    media_dirs=[media],
+                )
+                manager.start("IPX-850")
+                with mock.patch.object(manager, "_signal_process"):
+                    manager.cancel()
+                manager._collect(process, None)
+
+            self.assertFalse((work / "IPX-850__supjav_1").exists())
+            self.assertFalse((downloads / "IPX-850__supjav_1.mp4").exists())
+            self.assertFalse((media / "IPX-850").exists())
+            self.assertTrue(unrelated.is_file())
+            self.assertEqual(manager.snapshot()["state"], "idle")
+
 
 class SetupConfigTests(unittest.TestCase):
     def test_generated_config_has_hash_and_preserves_credentials(self):
@@ -221,7 +309,7 @@ class WebAppTests(unittest.TestCase):
 
     def login(self):
         page = self.client.get("/login")
-        self.assertIn('/static/app.css?v=2.7.5', page.text)
+        self.assertIn('/static/app.css?v=2.7.6', page.text)
         token = re.search(r'name="csrf_token" value="([^"]+)"', page.text).group(1)
         response = self.client.post(
             "/login",
@@ -234,7 +322,7 @@ class WebAppTests(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 303)
         dashboard = self.client.get("/")
-        self.assertIn('/static/app.js?v=2.7.5', dashboard.text)
+        self.assertIn('/static/app.js?v=2.7.6', dashboard.text)
         return re.search(r'name="csrf-token" content="([^"]+)"', dashboard.text).group(1)
 
     def test_media_apis_require_login(self):
@@ -260,6 +348,19 @@ class WebAppTests(unittest.TestCase):
         self.assertEqual(response.status_code, 206)
         self.assertEqual(response.content, b"2345")
         self.assertEqual(response.headers["content-range"], "bytes 2-5/10")
+
+    def test_running_task_can_be_cancelled_with_csrf(self):
+        csrf = self.login()
+        self.tasks.state = "running"
+        forbidden = self.client.post("/api/tasks/cancel")
+        self.assertEqual(forbidden.status_code, 403)
+        cancelled = self.client.post(
+            "/api/tasks/cancel",
+            headers={"X-CSRF-Token": csrf},
+        )
+        self.assertEqual(cancelled.status_code, 202)
+        self.assertEqual(cancelled.json()["state"], "cancelling")
+        self.assertEqual(self.tasks.state, "cancelling")
 
     def test_classified_media_download_route_supports_nested_path(self):
         classified = self.media / "JAV" / "IPX-851" / "IPX-851.mp4"
@@ -495,6 +596,7 @@ class WebAppTests(unittest.TestCase):
         self.assertIn("防火墙和云服务器安全组", page.text)
         self.assertIn("保存并重启 Web", page.text)
         self.assertIn("SupJav 专用代理", page.text)
+        self.assertIn("先尝试 IPv6 和 IPv4 直连", page.text)
         self.assertIn("当前未配置代理", page.text)
         self.assertIn("SupJav 广告防护", page.text)
         self.assertIn("不会联网下载第三方规则", page.text)
@@ -520,6 +622,9 @@ class FrontendRegressionTests(unittest.TestCase):
         self.assertIn("renderMagnets(task)", script)
         self.assertIn("scrollIntoView", script)
         self.assertIn("showCurrentTask", script)
+        self.assertIn("取消当前任务？", dashboard)
+        self.assertIn('/api/tasks/cancel', script)
+        self.assertIn('cancelling: "取消中"', script)
         self.assertIn("renderIdleTask", script)
         self.assertIn('performMediaAction("hide")', script)
         self.assertIn('performMediaAction("delete")', script)

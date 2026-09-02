@@ -1,7 +1,7 @@
 const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || "";
 const form = document.querySelector("#download-form");
 const formMessage = document.querySelector("#form-message");
-const stateLabels = { idle: "空闲", running: "运行中", searching: "搜索磁链", alternatives: "发现磁链", completed: "已完成", failed: "失败" };
+const stateLabels = { idle: "空闲", running: "运行中", searching: "搜索磁链", cancelling: "取消中", cancelled: "已取消", alternatives: "发现磁链", completed: "已完成", failed: "失败" };
 let showCurrentTask = false;
 let managingMedia = false;
 let currentMediaItems = [];
@@ -120,6 +120,7 @@ function renderIdleTask() {
   badge.className = "status-pill idle";
   document.querySelector("#progress-bar").className = "";
   document.querySelector("#task-log").textContent = "等待新任务…";
+  document.querySelector("#cancel-task").hidden = true;
   renderMagnets({ magnets: [] });
 }
 
@@ -127,7 +128,7 @@ async function refreshStatus() {
   try {
     const task = await requestJson("/api/status");
     const state = task.state || "idle";
-    if (["running", "searching"].includes(state)) showCurrentTask = true;
+    if (["running", "searching", "cancelling"].includes(state)) showCurrentTask = true;
     if (!showCurrentTask) {
       renderIdleTask();
       return;
@@ -136,7 +137,11 @@ async function refreshStatus() {
     const badge = document.querySelector("#task-state");
     badge.textContent = stateLabels[state] || state;
     badge.className = `status-pill ${state}`;
-    document.querySelector("#progress-bar").className = ["running", "searching"].includes(state) ? "running" : state;
+    document.querySelector("#progress-bar").className = ["running", "searching", "cancelling"].includes(state) ? "running" : state;
+    const cancelButton = document.querySelector("#cancel-task");
+    cancelButton.hidden = !["running", "cancelling"].includes(state);
+    cancelButton.disabled = state === "cancelling";
+    cancelButton.textContent = state === "cancelling" ? "取消中…" : "取消任务";
     renderMagnets(task);
     if (state === "alternatives" && window.lastAlternativesCode !== task.code) {
       window.lastAlternativesCode = task.code;
@@ -306,6 +311,31 @@ form?.addEventListener("submit", async (event) => {
     refreshStatus();
   } catch (error) {
     formMessage.textContent = error.message;
+  }
+});
+
+document.querySelector("#cancel-task")?.addEventListener("click", () => {
+  document.querySelector("#cancel-task-dialog").showModal();
+});
+document.querySelector("#close-cancel-task")?.addEventListener("click", () => document.querySelector("#cancel-task-dialog").close());
+document.querySelector("#dismiss-cancel-task")?.addEventListener("click", () => document.querySelector("#cancel-task-dialog").close());
+document.querySelector("#confirm-cancel-task")?.addEventListener("click", async () => {
+  const button = document.querySelector("#confirm-cancel-task");
+  button.disabled = true;
+  button.textContent = "正在取消…";
+  try {
+    await requestJson("/api/tasks/cancel", {
+      method: "POST",
+      headers: { "X-CSRF-Token": csrfToken },
+    });
+    document.querySelector("#cancel-task-dialog").close();
+    showCurrentTask = false;
+    await refreshStatus();
+  } catch (error) {
+    formMessage.textContent = error.message;
+  } finally {
+    button.disabled = false;
+    button.textContent = "确认取消";
   }
 });
 

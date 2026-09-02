@@ -46,7 +46,10 @@
               <p class="eyebrow">CURRENT TASK</p>
               <h2 id="task-code">暂无任务</h2>
             </div>
-            <span id="task-state" class="status-pill idle">空闲</span>
+            <div class="task-status-actions">
+              <button id="cancel-task" class="danger-button compact-button" type="button" hidden>取消任务</button>
+              <span id="task-state" class="status-pill idle">空闲</span>
+            </div>
           </div>
           <div class="progress-track" aria-hidden="true"><span id="progress-bar"></span></div>
           <pre id="task-log" class="task-log" tabindex="0">等待新任务…</pre>
@@ -98,6 +101,17 @@
         </div>
       </section>
     </main>
+
+    <dialog id="cancel-task-dialog" class="media-dialog cancel-task-dialog">
+      <button id="close-cancel-task" class="dialog-close" aria-label="关闭">×</button>
+      <p class="eyebrow">CANCEL DOWNLOAD</p>
+      <h2>取消当前任务？</h2>
+      <p class="muted">这会立即停止当前下载及其子进程，并删除该任务的临时分片、未完成文件和任务记录。其他作品不会受到影响。</p>
+      <div class="dialog-actions">
+        <button id="dismiss-cancel-task" class="ghost-button" type="button">继续下载</button>
+        <button id="confirm-cancel-task" class="danger-button" type="button">确认取消</button>
+      </div>
+    </dialog>
 
     <dialog id="media-dialog" class="media-dialog">
       <button id="close-dialog" class="dialog-close" aria-label="关闭">×</button>

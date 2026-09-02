@@ -13,6 +13,15 @@
 
 > 仅用于你有权访问和下载的内容。本项目不绕过 DRM、付费墙、验证码或访问控制。
 
+## v2.7.6
+
+- Web 当前任务新增“取消任务”操作与二次确认，取消会终止下载器及其全部子进程，超时未退出时自动强制停止。
+- 取消完成后按完整番号清理 `work` 临时分片、待归档下载文件和本次任务生成的番号目录，同时清空任务编号、状态与日志；其他作品不受影响。
+- SupJav 新增 IPv6 优先网络策略：依次尝试 IPv6 直连、IPv4 直连，均不可用或返回 403 时再启用已配置的 SupJav 专用代理。
+- 静态解析明确指定 IP 协议族，Chromium 回退将 SupJav 主域名绑定到可用 AAAA 地址；播放器和视频 CDN 不会被盲目强制 IPv6。
+- 新安装与一键更新会自动补充 `supjav_ipv6_first: true`，保留现有路径、媒体、代理、Web 登录、Jellyfin 和 MetaTube 配置。
+- 新增取消进程组、精确文件清理、状态清空、IPv6 路由顺序及代理最终回退测试；完整测试数量增加至 105 项。
+
 ## v2.7.5
 
 - 修复一键更新在公开 GitHub 仓库克隆异常时进入用户名/密码提示、表现为长时间卡住的问题。
@@ -401,7 +410,7 @@ sudo systemctl restart jable-downloader-web
 
 JavBus 磁链回退默认启用，可通过 `javbus_fallback_enabled` 关闭；`javbus_site` 仅接受 JavBus 官方 HTTPS 域名，`javbus_timeout_seconds` 控制单次查询超时。此回退只在普通番号的 Jable、MissAV 与 SupJav 都明确无结果后触发，不会影响已有下载流程或媒体目录。
 
-SupJav 专用代理可在后台设置中管理。`supjav_proxy_url` 支持 `http://`、`https://` 和无需认证的 `socks5://`；HTTP(S) 代理可以包含用户名和密码。留空时继续由 VPS 直连；`supjav_proxy_download` 默认为 `false`，只让页面解析走代理。代理凭据保存在权限为 `0600` 的 `/etc/jable-downloader/config.json` 中，Web 页面与任务日志只显示不含凭据的协议、主机和端口。
+SupJav 默认按“IPv6 直连 → IPv4 直连 → SupJav 专用代理”自动降级；`supjav_ipv6_first` 默认为 `true`，没有 IPv6 地址或 IPv6 出口时会自动继续 IPv4，不影响其他来源。专用代理可在后台设置中管理，支持 `http://`、`https://` 和无需认证的 `socks5://`；HTTP(S) 代理可以包含用户名和密码。代理只在两种直连均不可用时启用；`supjav_proxy_download` 默认为 `false`，只让页面解析走代理。代理凭据保存在权限为 `0600` 的 `/etc/jable-downloader/config.json` 中，Web 页面与任务日志只显示不含凭据的协议、主机和端口。
 
 SupJav 广告防护默认启用，只作用于 SupJav 的 Chromium 捕获。它会阻止外部弹窗和主页面劫持，按项目内置规则过滤确认过的广告请求，同时始终放行 M3U8、媒体分片、XHR/Fetch 和播放器数据。规则不会从第三方服务器静默更新，而是随项目版本一起安装、测试、备份和更新；可以直接在后台设置中开关并调整播放尝试次数，也可通过 `supjav_adblock_enabled` 和 `supjav_play_attempts` 配置（默认 10，范围 1–30）。
 

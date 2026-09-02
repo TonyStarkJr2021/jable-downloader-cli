@@ -68,7 +68,7 @@
         <article class="settings-card settings-card-wide">
           <p class="eyebrow">SUPJAV NETWORK</p>
           <h2>SupJav 专用代理</h2>
-          <p class="muted">只影响 SupJav，不改变 Jable、MissAV、JavBus 或其他服务器流量。支持带认证的 HTTP(S) 和无需认证的 SOCKS5。</p>
+          <p class="muted">只影响 SupJav，不改变 Jable、MissAV、JavBus 或其他服务器流量。系统先尝试 IPv6 和 IPv4 直连，两者都不可用时才使用这里的代理；支持带认证的 HTTP(S) 和无需认证的 SOCKS5。</p>
           <div id="proxy-status" class="proxy-status" data-configured="{{ 'true' if supjav_proxy_configured else 'false' }}">
             {% if supjav_proxy_configured %}
               已配置：<strong>{{ supjav_proxy_label }}</strong>（账号和密码已隐藏）

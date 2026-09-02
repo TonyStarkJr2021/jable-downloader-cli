@@ -50,9 +50,13 @@ input:focus { border-color: var(--accent); box-shadow: 0 0 0 4px rgba(94, 230, 1
 .status-card, .summary-card, .library-section, .magnet-section { border: 1px solid var(--border); border-radius: 22px; background: var(--panel); }
 .status-card, .summary-card { padding: 26px; }
 .status-heading, .section-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; }
+.task-status-actions { display: flex; align-items: center; gap: 10px; }
+.compact-button { padding: 8px 12px; border-radius: 999px; font-size: 12px; }
 .status-pill { border-radius: 999px; padding: 7px 11px; background: #222a2f; color: var(--muted); font-size: 12px; font-weight: 750; }
 .status-pill.running { color: var(--accent); background: var(--accent-dark); }
 .status-pill.searching { color: var(--warning); background: #332b17; }
+.status-pill.cancelling { color: var(--warning); background: #332b17; }
+.status-pill.cancelled { color: var(--muted); background: #222a2f; }
 .status-pill.alternatives { color: var(--warning); background: #332b17; }
 .status-pill.completed { color: var(--accent); background: var(--accent-dark); }
 .status-pill.failed { color: var(--danger); background: #3d2020; }

@@ -3,6 +3,8 @@ from __future__ import annotations
 import codecs
 import errno
 import os
+import signal
+import shutil
 import subprocess
 import re
 import threading
@@ -21,6 +23,10 @@ except ImportError:  # pragma: no cover - Windows development fallback
 
 
 class TaskBusyError(RuntimeError):
+    pass
+
+
+class TaskNotRunningError(RuntimeError):
     pass
 
 
@@ -103,11 +109,18 @@ class DownloadTaskManager:
         javbus_enabled: bool = True,
         javbus_site: str = "https://www.javbus.com",
         javbus_timeout_seconds: int = 15,
+        work_dir: str | Path | None = None,
+        download_dir: str | Path | None = None,
+        media_dirs: list[str | Path] | None = None,
     ) -> None:
         self.command = command
         self.max_log_lines = max_log_lines
         self._lock = threading.Lock()
         self._process: subprocess.Popen[str] | None = None
+        self._cancel_requested_for: subprocess.Popen[str] | None = None
+        self.work_dir = Path(work_dir) if work_dir else None
+        self.download_dir = Path(download_dir) if download_dir else None
+        self.media_dirs = tuple(dict.fromkeys(Path(item) for item in media_dirs or []))
         self.javbus_enabled = javbus_enabled
         self._magnet_lookup = magnet_lookup or (
             lambda code: lookup_javbus_magnets(
@@ -127,6 +140,20 @@ class DownloadTaskManager:
             "magnet_lookup_error": None,
         }
 
+    def _reset_state(self) -> None:
+        self._state = {
+            "state": "idle",
+            "code": None,
+            "source": None,
+            "started_at": None,
+            "finished_at": None,
+            "return_code": None,
+            "progress": None,
+            "logs": PreservedLogBuffer(self.max_log_lines),
+            "magnets": [],
+            "magnet_lookup_error": None,
+        }
+
     def start(self, raw_code: str) -> str:
         request = parse_download_input(raw_code)
         code = request.code
@@ -139,8 +166,9 @@ class DownloadTaskManager:
             "supjav": "SupJav",
         }
         with self._lock:
-            if self._state["state"] in {"running", "searching"}:
+            if self._state["state"] in {"running", "searching", "cancelling"}:
                 raise TaskBusyError("已有下载任务正在运行")
+            self._cancel_requested_for = None
             self._state = {
                 "state": "running",
                 "code": code,
@@ -197,6 +225,93 @@ class DownloadTaskManager:
             state["logs"] = list(self._state["logs"])
             return state
 
+    def cancel(self) -> str:
+        with self._lock:
+            process = self._process
+            if (
+                self._state["state"] not in {"running", "searching"}
+                or process is None
+                or process.poll() is not None
+            ):
+                raise TaskNotRunningError("当前没有可取消的任务")
+            self._cancel_requested_for = process
+            self._state["state"] = "cancelling"
+            self._state["progress"] = None
+            self._state["logs"].append("正在取消任务并停止下载进程…")
+            code = str(self._state.get("code") or "")
+
+        try:
+            self._signal_process(process, force=False)
+        except OSError:
+            with self._lock:
+                if self._process is process:
+                    self._cancel_requested_for = None
+                    self._state["state"] = "running"
+                    self._state["logs"].append("取消失败，下载任务仍在运行")
+            raise
+
+        threading.Thread(
+            target=self._force_stop_after_grace,
+            args=(process,),
+            daemon=True,
+        ).start()
+        return code
+
+    @staticmethod
+    def _signal_process(process: subprocess.Popen[Any], force: bool) -> None:
+        if process.poll() is not None:
+            return
+        if os.name == "posix":
+            try:
+                os.killpg(process.pid, signal.SIGKILL if force else signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+            return
+        if force:
+            process.kill()
+        else:
+            process.terminate()
+
+    def _force_stop_after_grace(self, process: subprocess.Popen[Any]) -> None:
+        threading.Event().wait(5)
+        with self._lock:
+            still_cancelled = self._cancel_requested_for is process
+        if still_cancelled and process.poll() is None:
+            try:
+                self._signal_process(process, force=True)
+            except OSError:
+                pass
+
+    @staticmethod
+    def _remove_path(path: Path) -> None:
+        if path.is_symlink() or path.is_file():
+            path.unlink(missing_ok=True)
+        elif path.is_dir():
+            shutil.rmtree(path)
+
+    def _cleanup_cancelled_files(self, code: str) -> None:
+        for root in (self.work_dir, self.download_dir):
+            if root is None or not root.is_dir():
+                continue
+            for path in root.iterdir():
+                if (
+                    path.name == code
+                    or path.name.startswith(f"{code}__")
+                    or path.name.startswith(f"{code}.")
+                ):
+                    self._remove_path(path)
+
+        for root in self.media_dirs:
+            if not root.is_dir():
+                continue
+            exact_directory = root / code
+            self._remove_path(exact_directory)
+            for path in root.iterdir():
+                if path.is_dir():
+                    continue
+                if path.name.startswith(f"{code}."):
+                    self._remove_path(path)
+
     def _record(self, value: str, transient: bool) -> None:
         cleaned = safe_log_line(value).strip()
         if not cleaned:
@@ -235,24 +350,40 @@ class DownloadTaskManager:
         return_code = process.wait()
         should_lookup = False
         with self._lock:
+            cancelled = self._cancel_requested_for is process
+            if self._process is process:
+                self._process = None
+            if cancelled:
+                self._cancel_requested_for = None
             self._state["progress"] = None
             self._state["return_code"] = return_code
             self._state["finished_at"] = time.time()
+            if cancelled:
+                code = str(self._state.get("code") or "")
+                self._state["logs"].append("下载进程已停止，正在清理任务文件…")
             should_lookup = (
-                return_code == 3
+                not cancelled
+                and return_code == 3
                 and self._state.get("source") == "auto"
                 and self.javbus_enabled
             )
-            self._state["state"] = (
+            self._state["state"] = "cancelled" if cancelled else (
                 "completed" if return_code == 0 else "searching" if should_lookup else "failed"
             )
             self._state["logs"].append(
-                "任务完成"
+                "任务已取消"
+                if cancelled
+                else "任务完成"
                 if return_code == 0
                 else "直链来源均未找到，正在查询 JavBus 磁力…"
                 if should_lookup
                 else f"任务失败（退出码 {return_code}）"
             )
+        if cancelled:
+            self._cleanup_cancelled_files(code)
+            with self._lock:
+                self._reset_state()
+            return
         if not should_lookup:
             return
 

@@ -40,7 +40,7 @@ from jable_web.media import (
     probe_media,
     resolve_media,
 )
-from jable_web.tasks import DownloadTaskManager, TaskBusyError
+from jable_web.tasks import DownloadTaskManager, TaskBusyError, TaskNotRunningError
 from jable_web.setup_config import USERNAME_RE, port_available, write_atomic
 
 try:
@@ -104,6 +104,13 @@ def create_app(
         javbus_enabled=bool(cli_config.get("javbus_fallback_enabled", True)),
         javbus_site=str(cli_config.get("javbus_site", "https://www.javbus.com")),
         javbus_timeout_seconds=int(cli_config.get("javbus_timeout_seconds", 15)),
+        work_dir=str(cli_config["work_dir"]),
+        download_dir=str(cli_config["download_dir"]),
+        media_dirs=[
+            media_dir,
+            Path(str(cli_config.get("jav_media_dir", media_dir / "JAV"))),
+            Path(str(cli_config.get("fc2_media_dir", media_dir / "FC2"))),
+        ],
     )
     app.state.media_dir = media_dir
     app.state.hidden_media = HiddenMediaStore(hidden_media_path)
@@ -485,6 +492,18 @@ def create_app(
         except OSError as exc:
             raise HTTPException(status_code=500, detail="下载命令启动失败") from exc
         return JSONResponse({"code": code, "state": "running"}, status_code=202)
+
+    @app.post("/api/tasks/cancel")
+    async def cancel_task(request: Request):
+        session = require_session(request)
+        require_csrf(request, session)
+        try:
+            code = app.state.task_manager.cancel()
+        except TaskNotRunningError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except OSError as exc:
+            raise HTTPException(status_code=500, detail="无法停止下载进程") from exc
+        return JSONResponse({"code": code, "state": "cancelling"}, status_code=202)
 
     @app.get("/api/media")
     async def media_list(request: Request):

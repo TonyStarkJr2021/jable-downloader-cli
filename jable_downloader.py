@@ -8,6 +8,7 @@ import ipaddress
 import os
 import re
 import shutil
+import socket
 import subprocess
 import sys
 import time
@@ -31,8 +32,11 @@ from supjav_adblock import (
 
 try:
     from curl_cffi import requests as browser_requests
+    from curl_cffi.const import CurlIpResolve, CurlOpt
 except ImportError:  # pragma: no cover - installer supplies this dependency
     browser_requests = None
+    CurlIpResolve = None
+    CurlOpt = None
 
 
 DEFAULT_CONFIG_FILES = (
@@ -155,6 +159,53 @@ def supjav_proxy_url(config: dict[str, Any]) -> str:
         return normalize_proxy_url(str(config.get("supjav_proxy_url", "")))
     except ValueError as exc:
         raise AppError(f"SupJav 代理配置无效：{exc}") from exc
+
+
+def supjav_network_mode(config: dict[str, Any]) -> str:
+    configured = str(config.get("_supjav_network_mode", "")).lower()
+    if configured in {"ipv6", "ipv4", "proxy"}:
+        return configured
+    return "proxy" if supjav_proxy_url(config) else "ipv4"
+
+
+def supjav_network_attempts(config: dict[str, Any]) -> list[tuple[str, str]]:
+    attempts: list[tuple[str, str]] = []
+    if bool(config.get("supjav_ipv6_first", True)):
+        attempts.append(("ipv6", "IPv6 直连"))
+    attempts.append(("ipv4", "IPv4 直连"))
+    if supjav_proxy_url(config):
+        attempts.append(("proxy", "SupJav 专用代理"))
+    return attempts
+
+
+def curl_ip_options(mode: str) -> dict[Any, Any]:
+    if CurlOpt is None or CurlIpResolve is None:
+        return {}
+    if mode == "ipv6":
+        return {CurlOpt.IPRESOLVE: CurlIpResolve.V6}
+    if mode == "ipv4":
+        return {CurlOpt.IPRESOLVE: CurlIpResolve.V4}
+    return {}
+
+
+def resolve_ipv6_address(hostname: str) -> str:
+    try:
+        addresses = socket.getaddrinfo(
+            hostname,
+            443,
+            family=socket.AF_INET6,
+            type=socket.SOCK_STREAM,
+        )
+    except OSError as exc:
+        raise AppError(f"SUPJAV 没有可用的 IPv6 地址（{hostname}）", 4) from exc
+    for entry in addresses:
+        address = str(entry[4][0]).split("%", 1)[0]
+        try:
+            if ipaddress.ip_address(address).version == 6:
+                return address
+        except ValueError:
+            continue
+    raise AppError(f"SUPJAV 没有可用的 IPv6 地址（{hostname}）", 4)
 
 
 def normalize_code(value: str) -> str:
@@ -280,6 +331,7 @@ def load_config(path: Path | None = None) -> dict[str, Any]:
     config.setdefault("supjav_min_duration_seconds", 600)
     config.setdefault("supjav_proxy_url", "")
     config.setdefault("supjav_proxy_download", False)
+    config.setdefault("supjav_ipv6_first", True)
     config.setdefault("supjav_adblock_enabled", True)
     config.setdefault("supjav_play_attempts", 10)
     config.setdefault("provider_probe_workers", 3)
@@ -827,14 +879,30 @@ def capture_supjav_static(
         "User-Agent": DEFAULT_BROWSER_UA,
         "Accept-Language": "en-US,en;q=0.9",
     }
-    proxy_url = supjav_proxy_url(config)
+    network_mode = supjav_network_mode(config)
+    configured_proxy = supjav_proxy_url(config)
+    proxy_url = configured_proxy if network_mode == "proxy" else ""
     session = browser_requests.Session(
         impersonate="chrome", headers=headers, proxy=proxy_url or None
     )
+    supjav_session = session
+    ip_options = curl_ip_options(network_mode)
+    if ip_options:
+        supjav_session = browser_requests.Session(
+            impersonate="chrome",
+            headers=headers,
+            proxy=None,
+            curl_options=ip_options,
+        )
 
     def fetch(url: str, referer: str) -> Any:
         try:
-            response = session.get(
+            request_session = (
+                supjav_session
+                if provider_from_hostname(urlparse(url).hostname or "") == "supjav"
+                else session
+            )
+            response = request_session.get(
                 url,
                 headers={"Referer": referer},
                 timeout=timeout,
@@ -944,10 +1012,14 @@ def capture_supjav_static(
                 )
                 if not selected:
                     continue
-                cookies = {
-                    str(name): str(value)
-                    for name, value in session.cookies.get_dict().items()
-                }
+                cookies: dict[str, str] = {}
+                for active_session in (session, supjav_session):
+                    cookies.update(
+                        {
+                            str(name): str(value)
+                            for name, value in active_session.cookies.get_dict().items()
+                        }
+                    )
                 candidate = inspect_stream_quality(
                     CapturedStream(
                         url=selected,
@@ -1150,8 +1222,16 @@ def capture_from_provider(
             ],
         }
         provider_proxy = supjav_proxy_url(config) if source == "supjav" else ""
+        if source == "supjav" and supjav_network_mode(config) != "proxy":
+            provider_proxy = ""
         if provider_proxy:
             launch_options["proxy"] = playwright_proxy(provider_proxy)
+        elif source == "supjav" and supjav_network_mode(config) == "ipv6":
+            supjav_host = urlparse(base).hostname or "supjav.com"
+            ipv6_address = resolve_ipv6_address(supjav_host)
+            launch_options["args"].append(
+                f"--host-resolver-rules=MAP {supjav_host} [{ipv6_address}]"
+            )
         if adblock_enabled:
             # Request interception cannot reliably observe requests owned by a
             # Service Worker, so SupJav's protected context blocks them.
@@ -1411,12 +1491,28 @@ def capture_candidates_from_provider(
     request: DownloadInput, source: str, config: dict[str, Any]
 ) -> list[CapturedStream]:
     if source == "supjav":
-        try:
-            return capture_supjav_static(request, config)
-        except AppError as exc:
-            print(f"⚠️ {exc}，改用 Chromium 播放器捕获 SupJav...\n")
-    if source == "supjav":
-        return [capture_from_provider(request, source, config)]
+        failures: list[AppError] = []
+        for mode, label in supjav_network_attempts(config):
+            attempt_config = dict(config)
+            attempt_config["_supjav_network_mode"] = mode
+            print(f"🌐 SupJav 网络线路：{label}")
+            try:
+                return capture_supjav_static(request, attempt_config)
+            except AppError as exc:
+                print(f"⚠️ {exc}，改用 Chromium 播放器捕获 SupJav...\n")
+                failures.append(exc)
+            try:
+                return [capture_from_provider(request, source, attempt_config)]
+            except AppError as exc:
+                failures.append(exc)
+                print(f"⚠️ SupJav {label}不可用：{exc}\n")
+            except Exception:
+                failure = AppError(f"SUPJAV {label}浏览器访问失败", 4)
+                failures.append(failure)
+                print(f"⚠️ {failure}\n")
+        if failures:
+            raise failures[-1]
+        raise AppError("SUPJAV 没有可用网络线路", 4)
     stream = inspect_stream_quality(capture_from_provider(request, source, config), config)
     return [stream]
 
