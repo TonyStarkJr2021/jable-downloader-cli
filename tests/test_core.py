@@ -329,6 +329,43 @@ class NormalizeCodeTests(unittest.TestCase):
                     [short], {"supjav_min_duration_seconds": 600}
                 )
 
+    def test_supjav_server_rotation_keeps_each_player_loaded_for_retries(self):
+        self.assertEqual(
+            [MODULE.supjav_server_index(i, 3, 10) for i in range(10)],
+            [0, 0, 0, 0, 1, 1, 1, 1, 2, 2],
+        )
+        self.assertEqual(
+            [MODULE.supjav_server_index(i, 1, 10) for i in range(10)],
+            [0] * 10,
+        )
+
+    def test_player_activation_reaches_cross_origin_iframe(self):
+        page = mock.Mock()
+        main_frame = object()
+        child_frame = mock.Mock()
+        page.main_frame = main_frame
+        page.frames = [main_frame, child_frame]
+
+        absent = mock.Mock()
+        absent.count.return_value = 0
+        main_locator = mock.Mock()
+        main_locator.first = absent
+        page.locator.return_value = main_locator
+
+        target = mock.Mock()
+        target.count.return_value = 1
+        target.is_visible.return_value = True
+
+        def child_locator(selector):
+            locator = mock.Mock()
+            locator.first = target if selector == ".vjs-big-play-button" else absent
+            return locator
+
+        child_frame.locator.side_effect = child_locator
+
+        self.assertTrue(MODULE.activate_player(page))
+        target.click.assert_called_once_with(force=True, timeout=1500)
+
     def test_quality_probe_forwards_only_stream_scoped_proxy(self):
         response = types.SimpleNamespace(
             status_code=200,

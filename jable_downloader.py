@@ -988,16 +988,59 @@ def capture_supjav_static(
     return captured
 
 
-def activate_player(page: Any) -> None:
-    """Best-effort player activation; failures are handled by capture timeout."""
-    for selector in ("video", ".plyr", "button[aria-label*='Play']"):
-        try:
-            target = page.locator(selector).first
-            if target.is_visible(timeout=1000):
-                target.click(force=True, timeout=2000)
-                return
-        except Exception:
-            continue
+PLAYER_ACTIVATION_SELECTORS = (
+    "video",
+    ".jw-icon-display",
+    ".jw-display-icon-container",
+    ".vjs-big-play-button",
+    ".plyr__control--overlaid",
+    "button[aria-label*='Play' i]",
+    "[class*='play-button' i]",
+)
+
+
+def activate_player(page: Any) -> bool:
+    """Activate a player on the page or inside one of its cross-origin frames."""
+    surfaces = [page]
+    try:
+        surfaces.extend(frame for frame in page.frames if frame != page.main_frame)
+    except Exception:
+        pass
+    for surface in surfaces:
+        for selector in PLAYER_ACTIVATION_SELECTORS:
+            try:
+                target = surface.locator(selector).first
+                if target.count() and target.is_visible(timeout=300):
+                    target.click(force=True, timeout=1500)
+                    return True
+            except Exception:
+                continue
+
+    # Some hosted players expose only a canvas/overlay inside an iframe. A
+    # centre click matches a real user's play attempt; popup and navigation
+    # protection remains active around it.
+    try:
+        for frame in page.frames:
+            if frame == page.main_frame:
+                continue
+            frame_box = frame.frame_element().bounding_box()
+            if frame_box and frame_box["width"] > 40 and frame_box["height"] > 40:
+                page.mouse.click(
+                    frame_box["x"] + frame_box["width"] / 2,
+                    frame_box["y"] + frame_box["height"] / 2,
+                )
+                return True
+    except Exception:
+        pass
+    return False
+
+
+def supjav_server_index(attempt: int, button_count: int, attempt_limit: int) -> int:
+    """Keep a server loaded for repeated play clicks before rotating it."""
+    if button_count <= 1:
+        return 0
+    attempts_per_server = max(2, (attempt_limit + button_count - 1) // button_count)
+    return min(button_count - 1, attempt // attempts_per_server)
 
 
 def choose_complete_supjav_browser_stream(
@@ -1243,7 +1286,7 @@ def capture_from_provider(
 
             supjav_buttons: Any | None = None
             supjav_button_count = 0
-            supjav_button_index = 0
+            supjav_active_button_index = -1
             next_supjav_activation = 0.0
             supjav_play_attempts = 0
             supjav_play_attempt_limit = max(
@@ -1271,7 +1314,15 @@ def capture_from_provider(
                 except Exception:
                     supjav_button_count = 0
 
-            deadline = time.monotonic() + capture_timeout_ms / 1000
+            capture_seconds = capture_timeout_ms / 1000
+            if source == "supjav":
+                # A configured attempt count is a promise, not merely an upper
+                # bound. Leave enough time for iframe loading and a final HLS
+                # request after the last click.
+                capture_seconds = max(
+                    capture_seconds, supjav_play_attempt_limit * 2.25 + 5
+                )
+            deadline = time.monotonic() + capture_seconds
             while (source == "supjav" or not preferred) and time.monotonic() < deadline:
                 now = time.monotonic()
                 if (
@@ -1282,19 +1333,31 @@ def capture_from_provider(
                 ):
                     try:
                         if supjav_button_count:
-                            supjav_buttons.nth(
-                                supjav_button_index % supjav_button_count
-                            ).click(force=True, timeout=1500)
-                            supjav_button_index += 1
-                        page.wait_for_timeout(350)
+                            button_index = supjav_server_index(
+                                supjav_play_attempts,
+                                supjav_button_count,
+                                supjav_play_attempt_limit,
+                            )
+                            if button_index != supjav_active_button_index:
+                                supjav_buttons.nth(button_index).click(
+                                    force=True, timeout=1500
+                                )
+                                supjav_active_button_index = button_index
+                                page.wait_for_timeout(1000)
                         activate_player(page)
                     except Exception:
-                        supjav_button_index += 1
+                        pass
                     supjav_play_attempts += 1
-                    next_supjav_activation = time.monotonic() + 2.0
+                    next_supjav_activation = time.monotonic() + 1.75
                 page.wait_for_timeout(500)
                 if source == "missav" and not preferred and not fallback:
                     activate_player(page)
+                if (
+                    source == "supjav"
+                    and supjav_play_attempts >= supjav_play_attempt_limit
+                    and time.monotonic() >= next_supjav_activation
+                ):
+                    break
 
             if adblock_enabled:
                 print(
