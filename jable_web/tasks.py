@@ -34,6 +34,34 @@ def safe_log_line(value: str) -> str:
     return re.sub(r"https?://\S+", "[M3U8 URL 已隐藏]", value)
 
 
+class PreservedLogBuffer:
+    """Keep task startup context and newest output within a bounded response."""
+
+    def __init__(self, max_lines: int, initial: list[str] | None = None) -> None:
+        self.max_lines = max(3, int(max_lines))
+        self.head_limit = max(2, self.max_lines // 3)
+        self.tail_limit = max(1, self.max_lines - self.head_limit - 1)
+        self._head: list[str] = []
+        self._tail: deque[str] = deque(maxlen=self.tail_limit)
+        self._omitted = 0
+        for line in initial or []:
+            self.append(line)
+
+    def append(self, line: str) -> None:
+        if len(self._head) < self.head_limit:
+            self._head.append(line)
+            return
+        if len(self._tail) == self.tail_limit:
+            self._omitted += 1
+        self._tail.append(line)
+
+    def __iter__(self):
+        yield from self._head
+        if self._omitted:
+            yield f"…… 中间日志过多，已省略 {self._omitted} 行；开头和最新日志均已保留 ……"
+        yield from self._tail
+
+
 class TerminalLogParser:
     """Turn terminal newlines and in-place carriage returns into log records."""
 
@@ -94,7 +122,7 @@ class DownloadTaskManager:
             "finished_at": None,
             "return_code": None,
             "progress": None,
-            "logs": deque(maxlen=max_log_lines),
+            "logs": PreservedLogBuffer(max_log_lines),
             "magnets": [],
             "magnet_lookup_error": None,
         }
@@ -121,9 +149,9 @@ class DownloadTaskManager:
                 "finished_at": None,
                 "return_code": None,
                 "progress": None,
-                "logs": deque(
+                "logs": PreservedLogBuffer(
+                    self.max_log_lines,
                     [f"准备下载 {code}", f"来源：{source_labels[request.source]}"],
-                    maxlen=self.max_log_lines,
                 ),
                 "magnets": [],
                 "magnet_lookup_error": None,

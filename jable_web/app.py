@@ -373,10 +373,6 @@ def create_app(
         payload = await request.json()
         if not isinstance(payload, dict):
             raise HTTPException(status_code=400, detail="请求格式错误")
-        if not verify_password(
-            str(payload.get("current_password", "")), app.state.password_hash
-        ):
-            raise HTTPException(status_code=403, detail="当前密码错误")
         proxy_url = requested_supjav_proxy(payload)
         if not proxy_url:
             raise HTTPException(status_code=400, detail="请先输入代理地址")
@@ -410,10 +406,6 @@ def create_app(
         payload = await request.json()
         if not isinstance(payload, dict):
             raise HTTPException(status_code=400, detail="请求格式错误")
-        if not verify_password(
-            str(payload.get("current_password", "")), app.state.password_hash
-        ):
-            raise HTTPException(status_code=403, detail="当前密码错误")
         clear = bool(payload.get("clear", False))
         proxy_url = "" if clear else requested_supjav_proxy(payload)
         if not clear and not proxy_url:

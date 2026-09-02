@@ -74,7 +74,6 @@ function proxyPayload(form, clear = false) {
   return {
     proxy_url: values.get("proxy_url"),
     proxy_download: document.querySelector("#proxy-download").checked,
-    current_password: values.get("current_password"),
     clear,
   };
 }
@@ -104,7 +103,6 @@ document.querySelector("#proxy-form")?.addEventListener("submit", async (event) 
     updateProxyStatus(result.configured, result.proxy_label);
     showMessage(message, result.message, true);
     form.querySelector("#proxy-url").value = "";
-    form.querySelector("#proxy-current-password").value = "";
   } catch (error) {
     showMessage(message, error.message);
   }
@@ -137,7 +135,6 @@ document.querySelector("#proxy-clear")?.addEventListener("click", async () => {
     updateProxyStatus(false);
     showMessage(message, result.message, true);
     form.querySelector("#proxy-url").value = "";
-    form.querySelector("#proxy-current-password").value = "";
   } catch (error) {
     showMessage(message, error.message);
   }
