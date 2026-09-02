@@ -33,12 +33,14 @@ class HLSRelay:
         cookies: dict[str, str] | None = None,
         host: str = "127.0.0.1",
         strip_fake_ts_header: bool = False,
+        proxy_url: str = "",
     ) -> None:
         self.referer = referer
         self.user_agent = user_agent
         self.cookies = dict(cookies or {})
         self.host = host
         self.strip_fake_ts_header = strip_fake_ts_header
+        self.proxy_url = proxy_url
         self._lock = threading.Lock()
         self._next_id = 0
         self._ids_by_url: dict[str, int] = {}
@@ -102,6 +104,7 @@ class HLSRelay:
             cookies=self.cookies,
             timeout=60,
             allow_redirects=True,
+            proxy=self.proxy_url or None,
         )
         if response.status_code not in {200, 206}:
             raise RuntimeError(f"上游返回 HTTP {response.status_code}")
@@ -159,8 +162,10 @@ class HLSRelay:
                     return
                 try:
                     result = relay._fetch(upstream, self.headers.get("Range"))
-                except Exception as exc:
-                    self.send_error(502, explain=str(exc))
+                except Exception:
+                    # Never expose an upstream or proxy URL (which may contain
+                    # credentials) through the local downloader response.
+                    self.send_error(502, explain="上游 HLS 请求失败")
                     return
                 self.send_response(result.status)
                 self.send_header("Content-Type", result.content_type)

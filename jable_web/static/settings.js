@@ -68,3 +68,77 @@ document.querySelector("#port-form")?.addEventListener("submit", async (event) =
     showMessage(message, error.message);
   }
 });
+
+function proxyPayload(form, clear = false) {
+  const values = new FormData(form);
+  return {
+    proxy_url: values.get("proxy_url"),
+    proxy_download: document.querySelector("#proxy-download").checked,
+    current_password: values.get("current_password"),
+    clear,
+  };
+}
+
+function updateProxyStatus(configured, label = "") {
+  const status = document.querySelector("#proxy-status");
+  const clear = document.querySelector("#proxy-clear");
+  status.dataset.configured = configured ? "true" : "false";
+  status.replaceChildren();
+  if (configured) {
+    status.append("已配置：");
+    const strong = document.createElement("strong");
+    strong.textContent = label;
+    status.append(strong, "（账号和密码已隐藏）");
+  } else {
+    status.textContent = "当前未配置代理";
+  }
+  clear.disabled = !configured;
+}
+
+document.querySelector("#proxy-form")?.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const message = document.querySelector("#proxy-message");
+  try {
+    const result = await requestJson("/api/settings/supjav-proxy", proxyPayload(form));
+    updateProxyStatus(result.configured, result.proxy_label);
+    showMessage(message, result.message, true);
+    form.querySelector("#proxy-url").value = "";
+    form.querySelector("#proxy-current-password").value = "";
+  } catch (error) {
+    showMessage(message, error.message);
+  }
+});
+
+document.querySelector("#proxy-test")?.addEventListener("click", async () => {
+  const form = document.querySelector("#proxy-form");
+  const message = document.querySelector("#proxy-message");
+  try {
+    const result = await requestJson(
+      "/api/settings/supjav-proxy/test",
+      proxyPayload(form),
+    );
+    showMessage(message, `${result.message}：${result.proxy_label}`, true);
+  } catch (error) {
+    showMessage(message, error.message);
+  }
+});
+
+document.querySelector("#proxy-clear")?.addEventListener("click", async () => {
+  if (!window.confirm("确定清除 SupJav 专用代理吗？之后 SupJav 将恢复 VPS 直连。")) return;
+  const form = document.querySelector("#proxy-form");
+  const message = document.querySelector("#proxy-message");
+  try {
+    const result = await requestJson(
+      "/api/settings/supjav-proxy",
+      proxyPayload(form, true),
+    );
+    document.querySelector("#proxy-download").checked = false;
+    updateProxyStatus(false);
+    showMessage(message, result.message, true);
+    form.querySelector("#proxy-url").value = "";
+    form.querySelector("#proxy-current-password").value = "";
+  } catch (error) {
+    showMessage(message, error.message);
+  }
+});

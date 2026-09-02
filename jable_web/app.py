@@ -15,7 +15,12 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Stre
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from jable_downloader import duration_text
+from jable_downloader import (
+    DEFAULT_BROWSER_UA,
+    duration_text,
+    normalize_proxy_url,
+    proxy_display_label,
+)
 from jable_web import __version__
 from jable_web.auth import (
     LoginLimiter,
@@ -37,6 +42,11 @@ from jable_web.media import (
 )
 from jable_web.tasks import DownloadTaskManager, TaskBusyError
 from jable_web.setup_config import USERNAME_RE, port_available, write_atomic
+
+try:
+    from curl_cffi import requests as browser_requests
+except ImportError:  # pragma: no cover - installer supplies this dependency
+    browser_requests = None
 
 
 COOKIE_NAME = "jable_session"
@@ -101,6 +111,7 @@ def create_app(
     app.state.password_hash = password_hash
     app.state.secure_cookie = secure_cookie
     app.state.web_config_path = web_config_path
+    app.state.cli_config_path = cli_config_path
     app.state.web_host = str(web_config.get("host", "0.0.0.0"))
     app.state.web_port = int(web_config.get("port", 0))
     app.state.config_lock = threading.Lock()
@@ -243,12 +254,23 @@ def create_app(
         session = current_session(request)
         if session is None:
             return RedirectResponse("/login", status_code=303)
+        current_cli_config = load_json(app.state.cli_config_path)
+        current_proxy = str(current_cli_config.get("supjav_proxy_url", ""))
+        try:
+            proxy_label = proxy_display_label(current_proxy)
+        except ValueError:
+            proxy_label = "配置格式无效"
         return templates.TemplateResponse(
             request=request,
             name="settings.html",
             context={
                 "username": app.state.username,
                 "port": app.state.web_port,
+                "supjav_proxy_configured": bool(current_proxy),
+                "supjav_proxy_label": proxy_label,
+                "supjav_proxy_download": bool(
+                    current_cli_config.get("supjav_proxy_download", False)
+                ),
                 "csrf_token": session.csrf_token,
                 "app_version": __version__,
             },
@@ -329,6 +351,87 @@ def create_app(
             "restart": True,
             "new_url": new_url,
             "port": new_port,
+        }
+
+    def requested_supjav_proxy(payload: dict[str, Any]) -> str:
+        entered = str(payload.get("proxy_url", "")).strip()
+        if entered:
+            try:
+                return normalize_proxy_url(entered)
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+        current = load_json(app.state.cli_config_path)
+        try:
+            return normalize_proxy_url(str(current.get("supjav_proxy_url", "")))
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=f"现有代理配置无效：{exc}") from exc
+
+    @app.post("/api/settings/supjav-proxy/test")
+    async def test_supjav_proxy(request: Request):
+        session = require_session(request)
+        require_csrf(request, session)
+        payload = await request.json()
+        if not isinstance(payload, dict):
+            raise HTTPException(status_code=400, detail="请求格式错误")
+        if not verify_password(
+            str(payload.get("current_password", "")), app.state.password_hash
+        ):
+            raise HTTPException(status_code=403, detail="当前密码错误")
+        proxy_url = requested_supjav_proxy(payload)
+        if not proxy_url:
+            raise HTTPException(status_code=400, detail="请先输入代理地址")
+        if browser_requests is None:
+            raise HTTPException(status_code=500, detail="服务器缺少代理测试组件")
+        try:
+            response = browser_requests.get(
+                "https://supjav.com/search/TEST-000/",
+                impersonate="chrome",
+                headers={"User-Agent": DEFAULT_BROWSER_UA},
+                timeout=15,
+                allow_redirects=True,
+                proxy=proxy_url,
+            )
+        except Exception as exc:
+            raise HTTPException(status_code=502, detail="代理连接失败") from exc
+        if response.status_code != 200:
+            raise HTTPException(
+                status_code=502,
+                detail=f"代理已连接，但 SupJav 返回 HTTP {response.status_code}",
+            )
+        return {
+            "message": "代理连接成功，SupJav 搜索页可访问",
+            "proxy_label": proxy_display_label(proxy_url),
+        }
+
+    @app.post("/api/settings/supjav-proxy")
+    async def update_supjav_proxy(request: Request):
+        session = require_session(request)
+        require_csrf(request, session)
+        payload = await request.json()
+        if not isinstance(payload, dict):
+            raise HTTPException(status_code=400, detail="请求格式错误")
+        if not verify_password(
+            str(payload.get("current_password", "")), app.state.password_hash
+        ):
+            raise HTTPException(status_code=403, detail="当前密码错误")
+        clear = bool(payload.get("clear", False))
+        proxy_url = "" if clear else requested_supjav_proxy(payload)
+        if not clear and not proxy_url:
+            raise HTTPException(status_code=400, detail="请先输入代理地址")
+        proxy_download = bool(payload.get("proxy_download", False)) if proxy_url else False
+        try:
+            with app.state.config_lock:
+                config = load_json(app.state.cli_config_path)
+                config["supjav_proxy_url"] = proxy_url
+                config["supjav_proxy_download"] = proxy_download
+                write_atomic(app.state.cli_config_path, config)
+        except OSError as exc:
+            raise HTTPException(status_code=500, detail="保存 SupJav 代理失败") from exc
+        return {
+            "message": "SupJav 代理已清除" if clear else "SupJav 代理已保存，下个任务生效",
+            "configured": bool(proxy_url),
+            "proxy_label": proxy_display_label(proxy_url),
+            "proxy_download": proxy_download,
         }
 
     @app.get("/api/status")

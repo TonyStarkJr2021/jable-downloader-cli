@@ -65,6 +65,34 @@
           </form>
           <div id="port-message" class="settings-message" role="status" aria-live="polite"></div>
         </article>
+        <article class="settings-card settings-card-wide">
+          <p class="eyebrow">SUPJAV NETWORK</p>
+          <h2>SupJav 专用代理</h2>
+          <p class="muted">只影响 SupJav，不改变 Jable、MissAV、JavBus 或其他服务器流量。支持带认证的 HTTP(S) 和无需认证的 SOCKS5。</p>
+          <div id="proxy-status" class="proxy-status" data-configured="{{ 'true' if supjav_proxy_configured else 'false' }}">
+            {% if supjav_proxy_configured %}
+              已配置：<strong>{{ supjav_proxy_label }}</strong>（账号和密码已隐藏）
+            {% else %}
+              当前未配置代理
+            {% endif %}
+          </div>
+          <form id="proxy-form" class="settings-form proxy-form">
+            <label for="proxy-url">代理地址</label>
+            <input id="proxy-url" name="proxy_url" type="password" autocomplete="new-password" placeholder="例如：http://用户名:密码@代理主机:端口；留空保持现有配置">
+            <label class="check-row">
+              <input id="proxy-download" name="proxy_download" type="checkbox" {% if supjav_proxy_download %}checked{% endif %}>
+              <span>SupJav 视频下载也走代理（默认关闭，仅在播放器或分片同样返回 403 时启用）</span>
+            </label>
+            <label for="proxy-current-password">当前后台密码</label>
+            <input id="proxy-current-password" name="current_password" type="password" autocomplete="current-password" required>
+            <div class="settings-actions">
+              <button class="primary-button" type="submit">保存代理</button>
+              <button id="proxy-test" class="ghost-button" type="button">测试连接</button>
+              <button id="proxy-clear" class="danger-button" type="button" {% if not supjav_proxy_configured %}disabled{% endif %}>清除代理</button>
+            </div>
+          </form>
+          <div id="proxy-message" class="settings-message" role="status" aria-live="polite"></div>
+        </article>
       </section>
     </main>
   </body>

@@ -105,6 +105,35 @@ class NormalizeCodeTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     MODULE.parse_download_input(value)
 
+    def test_proxy_url_validation_masking_and_playwright_conversion(self):
+        value = "https://user:p%40ss@proxy.example:8443"
+        self.assertEqual(MODULE.normalize_proxy_url(value), value)
+        self.assertEqual(
+            MODULE.proxy_display_label(value), "https://proxy.example:8443"
+        )
+        self.assertEqual(
+            MODULE.playwright_proxy(value),
+            {
+                "server": "https://proxy.example:8443",
+                "username": "user",
+                "password": "p@ss",
+            },
+        )
+
+    def test_proxy_url_rejects_unsafe_or_incomplete_values(self):
+        for value in (
+            "ftp://proxy.example:21",
+            "http://proxy.example",
+            "http://proxy.example:8080/path",
+            "http://proxy.example:8080?token=value",
+            "http://proxy.example:99999",
+            "http://proxy example:8080",
+            "socks5://user:secret@proxy.example:1080",
+        ):
+            with self.subTest(value=value):
+                with self.assertRaises(ValueError):
+                    MODULE.normalize_proxy_url(value)
+
     def test_ordinary_code_probes_all_three_providers_and_ranks_quality(self):
         request = MODULE.parse_download_input("IPX-850")
         missav = MODULE.CapturedStream(
@@ -238,6 +267,27 @@ class NormalizeCodeTests(unittest.TestCase):
             (1920, 1080, 2684340, True),
         )
 
+    def test_quality_probe_forwards_only_stream_scoped_proxy(self):
+        response = types.SimpleNamespace(
+            status_code=200,
+            url="https://cdn.example/video.m3u8",
+            text="#EXTM3U\n#EXTINF:10.0,\nsegment.ts\n",
+        )
+        requests = types.SimpleNamespace(get=mock.Mock(return_value=response))
+        stream = MODULE.CapturedStream(
+            "https://cdn.example/video.m3u8",
+            "supjav",
+            "https://supjav.com/1.html",
+            "UA",
+            {},
+            proxy_url="http://proxy.example:8080",
+        )
+        with mock.patch.object(MODULE, "browser_requests", requests):
+            MODULE.inspect_stream_quality(stream, {})
+        self.assertEqual(
+            requests.get.call_args.kwargs["proxy"], "http://proxy.example:8080"
+        )
+
     def test_same_resolution_prefers_higher_missav_bitrate(self):
         missav = MODULE.CapturedStream(
             "https://missav.example/master.m3u8",
@@ -321,6 +371,64 @@ class MissAVStaticCaptureTests(unittest.TestCase):
         self.assertEqual(stream.source, "missav")
         self.assertEqual(stream.cookies, {"session": "value"})
         requests.Session.assert_called_once()
+
+
+class SupJavProxyCaptureTests(unittest.TestCase):
+    def test_static_search_session_uses_only_supjav_proxy(self):
+        response = types.SimpleNamespace(
+            status_code=200,
+            url="https://supjav.com/search/IPX-850/",
+            text="<html></html>",
+        )
+        session = mock.Mock()
+        session.get.return_value = response
+        requests = types.SimpleNamespace(Session=mock.Mock(return_value=session))
+        config = {
+            "supjav_site": "https://supjav.com",
+            "supjav_language": "",
+            "supjav_proxy_url": "http://user:secret@proxy.example:8080",
+            "page_timeout_ms": 30000,
+        }
+        with (
+            mock.patch.object(MODULE, "browser_requests", requests),
+            mock.patch("builtins.print"),
+        ):
+            with self.assertRaises(MODULE.AppError):
+                MODULE.capture_supjav_static(
+                    MODULE.parse_download_input("IPX-850"), config
+                )
+        self.assertEqual(
+            requests.Session.call_args.kwargs["proxy"],
+            "http://user:secret@proxy.example:8080",
+        )
+
+    def test_browser_proxy_launch_error_does_not_expose_credentials(self):
+        with tempfile.TemporaryDirectory() as root:
+            launch = mock.Mock(
+                side_effect=RuntimeError(
+                    "failed http://user:secret@proxy.example:8080"
+                )
+            )
+            playwright = types.SimpleNamespace(
+                chromium=types.SimpleNamespace(launch_persistent_context=launch)
+            )
+            manager = mock.MagicMock()
+            manager.__enter__.return_value = playwright
+            config = {
+                "supjav_site": "https://supjav.com",
+                "supjav_language": "",
+                "supjav_proxy_url": "http://user:secret@proxy.example:8080",
+                "browser_profile": root,
+                "browser_headless": True,
+                "chromium": "/usr/bin/chromium",
+            }
+            with mock.patch.object(MODULE, "sync_playwright", return_value=manager):
+                with self.assertRaises(MODULE.AppError) as raised:
+                    MODULE.capture_from_provider(
+                        MODULE.parse_download_input("IPX-850"), "supjav", config
+                    )
+        self.assertNotIn("secret", str(raised.exception))
+        self.assertEqual(str(raised.exception), "SUPJAV Chromium 无法连接专用代理")
 
 
 class LocalFileTests(unittest.TestCase):
@@ -428,6 +536,8 @@ class LocalFileTests(unittest.TestCase):
             self.assertTrue(config["missav_hls_relay"])
             self.assertEqual(config["supjav_site"], "https://supjav.com")
             self.assertTrue(config["supjav_hls_relay"])
+            self.assertEqual(config["supjav_proxy_url"], "")
+            self.assertFalse(config["supjav_proxy_download"])
             self.assertEqual(config["provider_probe_workers"], 3)
             self.assertTrue(config["javbus_fallback_enabled"])
             self.assertEqual(config["javbus_site"], "https://www.javbus.com")
@@ -502,7 +612,9 @@ class LocalFileTests(unittest.TestCase):
             relay.start.return_value = "http://127.0.0.1:32100/resource/1"
             completed = types.SimpleNamespace(returncode=0)
             with (
-                mock.patch.object(MODULE, "HLSRelay", return_value=relay),
+                mock.patch.object(
+                    MODULE, "HLSRelay", return_value=relay
+                ) as relay_class,
                 mock.patch.object(MODULE.subprocess, "run", return_value=completed) as run,
                 mock.patch("builtins.print"),
             ):
@@ -511,6 +623,9 @@ class LocalFileTests(unittest.TestCase):
                 )
             self.assertEqual(found, output)
             self.assertEqual(run.call_args.args[0][1], "http://127.0.0.1:32100/resource/1")
+            self.assertEqual(
+                relay_class.call_args.kwargs["proxy_url"], stream.proxy_url
+            )
             relay.stop.assert_called_once()
 
     def test_ranked_download_falls_back_without_reusing_partial_name(self):

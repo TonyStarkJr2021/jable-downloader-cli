@@ -51,6 +51,30 @@ class HLSRelayTests(unittest.TestCase):
             finally:
                 relay.stop()
 
+    def test_loopback_error_does_not_expose_upstream_proxy_credentials(self):
+        relay = HLSRelay(
+            "https://supjav.com/1.html",
+            "Browser UA",
+            proxy_url="http://user:secret@proxy.example:8080",
+        )
+        with (
+            mock.patch.object(relay, "available", return_value=True),
+            mock.patch.object(
+                relay,
+                "_fetch",
+                side_effect=RuntimeError("http://user:secret@proxy.example:8080"),
+            ),
+        ):
+            url = relay.start("https://cdn.example/segment.ts")
+            try:
+                with self.assertRaises(urllib.error.HTTPError) as raised:
+                    urllib.request.urlopen(url, timeout=3)
+                body = raised.exception.read().decode("utf-8", errors="ignore")
+                self.assertNotIn("secret", body)
+                self.assertIn("上游 HLS 请求失败", body)
+            finally:
+                relay.stop()
+
     def test_supjav_fake_segment_header_is_removed_only_on_ts_sync(self):
         packets = b"".join(b"\x47" + bytes([index]) * 187 for index in range(5))
         response = types.SimpleNamespace(
@@ -69,6 +93,26 @@ class HLSRelayTests(unittest.TestCase):
             fetched = relay._fetch("https://cdn.example/segment.png")
         self.assertEqual(fetched.body, packets)
         self.assertEqual(fetched.body[0], 0x47)
+
+    def test_upstream_request_uses_configured_proxy(self):
+        response = types.SimpleNamespace(
+            status_code=200,
+            content=b"segment",
+            text="segment",
+            headers={"Content-Type": "video/mp2t"},
+        )
+        requests = types.SimpleNamespace(get=mock.Mock(return_value=response))
+        relay = HLSRelay(
+            "https://supjav.com/1.html",
+            "UA",
+            proxy_url="http://user:secret@proxy.example:8080",
+        )
+        with mock.patch.object(hls_proxy, "browser_requests", requests):
+            relay._fetch("https://cdn.example/segment.ts")
+        self.assertEqual(
+            requests.get.call_args.kwargs["proxy"],
+            "http://user:secret@proxy.example:8080",
+        )
 
 
 if __name__ == "__main__":

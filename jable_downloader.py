@@ -92,6 +92,63 @@ class CapturedStream:
     duration: float = 0.0
     server: str = ""
     verified: bool = False
+    proxy_url: str = ""
+
+
+def normalize_proxy_url(value: str) -> str:
+    """Validate an explicit HTTP(S)/SOCKS5 proxy without exposing credentials."""
+    proxy_url = value.strip()
+    if not proxy_url:
+        return ""
+    if len(proxy_url) > 2048 or any(character.isspace() for character in proxy_url):
+        raise ValueError("代理地址为空、过长或包含空白字符")
+    try:
+        parsed = urlparse(proxy_url)
+        port = parsed.port
+    except ValueError as exc:
+        raise ValueError("代理地址端口无效") from exc
+    if parsed.scheme.lower() not in {"http", "https", "socks5"}:
+        raise ValueError("代理仅支持 http://、https:// 或 socks5://")
+    if not parsed.hostname or port is None:
+        raise ValueError("代理地址必须包含主机和端口")
+    if parsed.path not in {"", "/"} or parsed.query or parsed.fragment:
+        raise ValueError("代理地址不能包含路径、查询参数或片段")
+    if parsed.password is not None and parsed.username is None:
+        raise ValueError("代理密码必须与用户名一起提供")
+    if parsed.scheme.lower() == "socks5" and parsed.username is not None:
+        raise ValueError("Chromium 不支持需要账号密码的 SOCKS5，请改用 HTTP(S) 代理")
+    return proxy_url.rstrip("/")
+
+
+def proxy_display_label(value: str) -> str:
+    """Return a credential-free proxy label suitable for the Web UI and logs."""
+    proxy_url = normalize_proxy_url(value)
+    if not proxy_url:
+        return ""
+    parsed = urlparse(proxy_url)
+    host = parsed.hostname or ""
+    if ":" in host:
+        host = f"[{host}]"
+    return f"{parsed.scheme.lower()}://{host}:{parsed.port}"
+
+
+def playwright_proxy(value: str) -> dict[str, str]:
+    """Convert one validated proxy URL into Playwright's credential-safe shape."""
+    proxy_url = normalize_proxy_url(value)
+    parsed = urlparse(proxy_url)
+    config = {"server": proxy_display_label(proxy_url)}
+    if parsed.username is not None:
+        config["username"] = unquote(parsed.username)
+    if parsed.password is not None:
+        config["password"] = unquote(parsed.password)
+    return config
+
+
+def supjav_proxy_url(config: dict[str, Any]) -> str:
+    try:
+        return normalize_proxy_url(str(config.get("supjav_proxy_url", "")))
+    except ValueError as exc:
+        raise AppError(f"SupJav 代理配置无效：{exc}") from exc
 
 
 def normalize_code(value: str) -> str:
@@ -215,6 +272,8 @@ def load_config(path: Path | None = None) -> dict[str, Any]:
     config.setdefault("supjav_allow_m3u8_fallback", True)
     config.setdefault("supjav_hls_relay", True)
     config.setdefault("supjav_min_duration_seconds", 600)
+    config.setdefault("supjav_proxy_url", "")
+    config.setdefault("supjav_proxy_download", False)
     config.setdefault("provider_probe_workers", 3)
     config.setdefault("javbus_fallback_enabled", True)
     config.setdefault("javbus_site", "https://www.javbus.com")
@@ -643,6 +702,7 @@ def inspect_stream_quality(stream: CapturedStream, config: dict[str, Any]) -> Ca
             cookies=stream.cookies,
             timeout=timeout,
             allow_redirects=True,
+            proxy=stream.proxy_url or None,
         )
         if response.status_code != 200 or not hls_playlist_usable(response.text):
             return stream
@@ -659,6 +719,7 @@ def inspect_stream_quality(stream: CapturedStream, config: dict[str, Any]) -> Ca
                 cookies=stream.cookies,
                 timeout=timeout,
                 allow_redirects=True,
+                proxy=stream.proxy_url or None,
             )
             if variant.status_code == 200 and hls_playlist_usable(variant.text):
                 duration = hls_duration(variant.text)
@@ -758,7 +819,10 @@ def capture_supjav_static(
         "User-Agent": DEFAULT_BROWSER_UA,
         "Accept-Language": "en-US,en;q=0.9",
     }
-    session = browser_requests.Session(impersonate="chrome", headers=headers)
+    proxy_url = supjav_proxy_url(config)
+    session = browser_requests.Session(
+        impersonate="chrome", headers=headers, proxy=proxy_url or None
+    )
 
     def fetch(url: str, referer: str) -> Any:
         try:
@@ -884,6 +948,11 @@ def capture_supjav_static(
                         user_agent=DEFAULT_BROWSER_UA,
                         cookies=cookies,
                         server=server_name,
+                        proxy_url=(
+                            proxy_url
+                            if bool(config.get("supjav_proxy_download", False))
+                            else ""
+                        ),
                     ),
                     config,
                 )
@@ -962,18 +1031,28 @@ def capture_from_provider(
     profile.mkdir(parents=True, exist_ok=True)
 
     with sync_playwright() as playwright:
-        context = playwright.chromium.launch_persistent_context(
-            str(profile),
-            headless=bool(config.get("browser_headless", False)),
-            executable_path=str(config["chromium"]),
-            viewport={"width": 1365, "height": 768},
-            locale=str(config.get("locale", "zh-CN")),
-            args=[
+        launch_options: dict[str, Any] = {
+            "headless": bool(config.get("browser_headless", False)),
+            "executable_path": str(config["chromium"]),
+            "viewport": {"width": 1365, "height": 768},
+            "locale": str(config.get("locale", "zh-CN")),
+            "args": [
                 "--no-sandbox",
                 "--disable-dev-shm-usage",
                 "--disable-blink-features=AutomationControlled",
             ],
-        )
+        }
+        provider_proxy = supjav_proxy_url(config) if source == "supjav" else ""
+        if provider_proxy:
+            launch_options["proxy"] = playwright_proxy(provider_proxy)
+        try:
+            context = playwright.chromium.launch_persistent_context(
+                str(profile), **launch_options
+            )
+        except Exception as exc:
+            if provider_proxy:
+                raise AppError("SUPJAV Chromium 无法连接专用代理", 4) from exc
+            raise
         try:
             page = context.pages[0] if context.pages else context.new_page()
             timeout_ms = int(config.get("page_timeout_ms", 30000))
@@ -1087,6 +1166,11 @@ def capture_from_provider(
                     referer=request_referers.get(selected, str(detail_url)),
                     user_agent=user_agent,
                     cookies=cookie_map,
+                    proxy_url=(
+                        provider_proxy
+                        if bool(config.get("supjav_proxy_download", False))
+                        else ""
+                    ),
                 )
         except PlaywrightTimeoutError as exc:
             raise AppError(f"{source.upper()} 浏览器等待页面超时，请稍后重试", 4) from exc
@@ -1194,7 +1278,8 @@ def run_downloader(
     use_relay = (
         stream.source == "missav" and config.get("missav_hls_relay", True)
     ) or (
-        stream.source == "supjav" and config.get("supjav_hls_relay", True)
+        stream.source == "supjav"
+        and (config.get("supjav_hls_relay", True) or bool(stream.proxy_url))
     )
     if use_relay:
         relay = HLSRelay(
@@ -1202,6 +1287,7 @@ def run_downloader(
             stream.user_agent,
             stream.cookies,
             strip_fake_ts_header=stream.source == "supjav",
+            proxy_url=stream.proxy_url,
         )
         try:
             download_url = relay.start(stream.url)

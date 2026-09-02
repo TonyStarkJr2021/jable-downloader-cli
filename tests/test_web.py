@@ -1,6 +1,7 @@
 import json
 import re
 import tempfile
+import types
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -204,7 +205,7 @@ class WebAppTests(unittest.TestCase):
 
     def login(self):
         page = self.client.get("/login")
-        self.assertIn('/static/app.css?v=2.6.2', page.text)
+        self.assertIn('/static/app.css?v=2.7.0', page.text)
         token = re.search(r'name="csrf_token" value="([^"]+)"', page.text).group(1)
         response = self.client.post(
             "/login",
@@ -217,7 +218,7 @@ class WebAppTests(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 303)
         dashboard = self.client.get("/")
-        self.assertIn('/static/app.js?v=2.6.2', dashboard.text)
+        self.assertIn('/static/app.js?v=2.7.0', dashboard.text)
         return re.search(r'name="csrf-token" content="([^"]+)"', dashboard.text).group(1)
 
     def test_media_apis_require_login(self):
@@ -369,12 +370,80 @@ class WebAppTests(unittest.TestCase):
         saved = json.loads(self.web_config.read_text(encoding="utf-8"))
         self.assertEqual(saved["port"], 28491)
 
+    def test_supjav_proxy_settings_validate_mask_test_save_and_clear(self):
+        csrf = self.login()
+        headers = {"X-CSRF-Token": csrf}
+        invalid = self.client.post(
+            "/api/settings/supjav-proxy",
+            json={
+                "proxy_url": "ftp://proxy.example:21",
+                "current_password": "test-password-123",
+            },
+            headers=headers,
+        )
+        self.assertEqual(invalid.status_code, 400)
+        proxy_url = "http://user:secret@proxy.example:8080"
+        saved_response = self.client.post(
+            "/api/settings/supjav-proxy",
+            json={
+                "proxy_url": proxy_url,
+                "proxy_download": True,
+                "current_password": "test-password-123",
+            },
+            headers=headers,
+        )
+        self.assertEqual(saved_response.status_code, 200)
+        self.assertEqual(
+            saved_response.json()["proxy_label"], "http://proxy.example:8080"
+        )
+        saved = json.loads(self.cli_config.read_text(encoding="utf-8"))
+        self.assertEqual(saved["supjav_proxy_url"], proxy_url)
+        self.assertTrue(saved["supjav_proxy_download"])
+        page = self.client.get("/settings")
+        self.assertIn("http://proxy.example:8080", page.text)
+        self.assertNotIn("user:secret", page.text)
+        response = types.SimpleNamespace(status_code=200)
+        with mock.patch("jable_web.app.browser_requests.get", return_value=response) as get:
+            tested = self.client.post(
+                "/api/settings/supjav-proxy/test",
+                json={
+                    "proxy_url": "",
+                    "current_password": "test-password-123",
+                },
+                headers=headers,
+            )
+        self.assertEqual(tested.status_code, 200)
+        self.assertEqual(get.call_args.kwargs["proxy"], proxy_url)
+        cleared = self.client.post(
+            "/api/settings/supjav-proxy",
+            json={"clear": True, "current_password": "test-password-123"},
+            headers=headers,
+        )
+        self.assertEqual(cleared.status_code, 200)
+        cleared_config = json.loads(self.cli_config.read_text(encoding="utf-8"))
+        self.assertEqual(cleared_config["supjav_proxy_url"], "")
+        self.assertFalse(cleared_config["supjav_proxy_download"])
+
+    def test_supjav_proxy_settings_require_current_password(self):
+        csrf = self.login()
+        response = self.client.post(
+            "/api/settings/supjav-proxy",
+            json={
+                "proxy_url": "http://proxy.example:8080",
+                "current_password": "wrong-password",
+            },
+            headers={"X-CSRF-Token": csrf},
+        )
+        self.assertEqual(response.status_code, 403)
+
     def test_settings_page_contains_firewall_warning(self):
         self.login()
         page = self.client.get("/settings")
         self.assertEqual(page.status_code, 200)
         self.assertIn("防火墙和云服务器安全组", page.text)
         self.assertIn("保存并重启 Web", page.text)
+        self.assertIn("SupJav 专用代理", page.text)
+        self.assertIn("当前未配置代理", page.text)
 
 
 class FrontendRegressionTests(unittest.TestCase):
