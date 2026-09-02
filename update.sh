@@ -5,6 +5,7 @@ APP_DIR="/opt/jable-downloader"
 CONFIG_DIR="/etc/jable-downloader"
 COMMAND_PATH="/usr/local/bin/n"
 WEB_SERVICE="/etc/systemd/system/jable-downloader-web.service"
+OFFICIAL_REPO_URL="https://github.com/TonyStarkJr2021/jable-downloader-cli"
 SOURCE_DIR=""
 TEMP_DIR=""
 
@@ -49,9 +50,36 @@ if [[ -z "$SOURCE_DIR" ]]; then
     exit 1
   }
   TEMP_DIR="$(mktemp -d)"
-  git clone --depth 1 --branch "${JABLE_REPO_BRANCH:-main}" \
-    "$JABLE_REPO_URL" "$TEMP_DIR/source"
-  SOURCE_DIR="$TEMP_DIR/source"
+  REPO_BRANCH="${JABLE_REPO_BRANCH:-main}"
+  # Public updates must never look frozen while Git waits for credentials.
+  # A failed official GitHub clone falls back to the public source archive.
+  if GIT_TERMINAL_PROMPT=0 git clone --depth 1 --branch "$REPO_BRANCH" \
+    -- "$JABLE_REPO_URL" "$TEMP_DIR/source"; then
+    SOURCE_DIR="$TEMP_DIR/source"
+  else
+    NORMALIZED_REPO_URL="${JABLE_REPO_URL%.git}"
+    NORMALIZED_REPO_URL="${NORMALIZED_REPO_URL%/}"
+    if [[ "$NORMALIZED_REPO_URL" != "$OFFICIAL_REPO_URL" ]]; then
+      echo "无法克隆自定义更新源，且不会向公开终端索取 GitHub 凭据。" >&2
+      exit 1
+    fi
+    command -v curl >/dev/null 2>&1 || {
+      echo "Git 克隆失败，且系统缺少用于官方压缩包回退的 curl。" >&2
+      exit 1
+    }
+    command -v tar >/dev/null 2>&1 || {
+      echo "Git 克隆失败，且系统缺少用于官方压缩包回退的 tar。" >&2
+      exit 1
+    }
+    echo "Git 克隆失败，改用 GitHub 官方源码压缩包..."
+    ARCHIVE_PATH="$TEMP_DIR/source.tar.gz"
+    curl -fsSL --retry 3 --connect-timeout 15 \
+      "$OFFICIAL_REPO_URL/archive/refs/heads/$REPO_BRANCH.tar.gz" \
+      -o "$ARCHIVE_PATH"
+    install -d -m 0700 "$TEMP_DIR/archive-source"
+    tar -xzf "$ARCHIVE_PATH" --strip-components=1 -C "$TEMP_DIR/archive-source"
+    SOURCE_DIR="$TEMP_DIR/archive-source"
+  fi
 fi
 
 for required in jable_downloader.py migrate_media_layout.py hls_proxy.py supjav_adblock.py rules/supjav-adblock.json config.example.json web.example.json requirements.txt bin/n update.sh uninstall.sh VERSION systemd/jable-downloader-web.service; do

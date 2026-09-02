@@ -427,8 +427,34 @@ else
   fi
   bootstrap_git
   TEMP_DIR="$(mktemp -d)"
-  git clone --depth 1 --branch "$REPO_BRANCH" "$REPO_URL" "$TEMP_DIR/source"
-  SOURCE_DIR="$TEMP_DIR/source"
+  if GIT_TERMINAL_PROMPT=0 git clone --depth 1 --branch "$REPO_BRANCH" \
+    -- "$REPO_URL" "$TEMP_DIR/source"; then
+    SOURCE_DIR="$TEMP_DIR/source"
+  else
+    NORMALIZED_REPO_URL="${REPO_URL%.git}"
+    NORMALIZED_REPO_URL="${NORMALIZED_REPO_URL%/}"
+    NORMALIZED_DEFAULT_URL="${DEFAULT_REPO_URL%.git}"
+    if [[ "$NORMALIZED_REPO_URL" != "$NORMALIZED_DEFAULT_URL" ]]; then
+      echo "无法克隆自定义安装源，且不会向公开终端索取 GitHub 凭据。" >&2
+      exit 1
+    fi
+    command -v curl >/dev/null 2>&1 || {
+      echo "Git 克隆失败，且系统缺少用于官方压缩包回退的 curl。" >&2
+      exit 1
+    }
+    command -v tar >/dev/null 2>&1 || {
+      echo "Git 克隆失败，且系统缺少用于官方压缩包回退的 tar。" >&2
+      exit 1
+    }
+    echo "Git 克隆失败，改用 GitHub 官方源码压缩包..."
+    ARCHIVE_PATH="$TEMP_DIR/source.tar.gz"
+    curl -fsSL --retry 3 --connect-timeout 15 \
+      "$NORMALIZED_DEFAULT_URL/archive/refs/heads/$REPO_BRANCH.tar.gz" \
+      -o "$ARCHIVE_PATH"
+    install -d -m 0700 "$TEMP_DIR/archive-source"
+    tar -xzf "$ARCHIVE_PATH" --strip-components=1 -C "$TEMP_DIR/archive-source"
+    SOURCE_DIR="$TEMP_DIR/archive-source"
+  fi
 fi
 
 for required in jable_downloader.py migrate_media_layout.py hls_proxy.py supjav_adblock.py rules/supjav-adblock.json config.example.json web.example.json requirements.txt bin/n update.sh uninstall.sh VERSION systemd/jable-downloader-web.service; do

@@ -106,6 +106,12 @@ class InstallerPlatformTests(unittest.TestCase):
         self.assertNotIn("从本地成品发布到 GitHub", README)
         self.assertNotIn("gh release create", README)
 
+    def test_update_never_prompts_for_public_git_credentials(self):
+        for script in (INSTALLER, UPDATER):
+            self.assertIn("GIT_TERMINAL_PROMPT=0 git clone", script)
+            self.assertIn("archive/refs/heads/$REPO_BRANCH.tar.gz", script)
+            self.assertIn("Git 克隆失败，改用 GitHub 官方源码压缩包", script)
+
     def test_repository_presentation_and_release_assets_are_present(self):
         self.assertIn("docs/preview.png", README)
         self.assertIn("actions/workflows/ci.yml/badge.svg", README)
@@ -117,7 +123,7 @@ class InstallerPlatformTests(unittest.TestCase):
         self.assertIn("supjav_adblock.py", workflow)
 
     def test_release_version_is_consistent(self):
-        self.assertEqual(VERSION, "2.7.4")
+        self.assertEqual(VERSION, "2.7.5")
         self.assertIn(f'__version__ = "{VERSION}"', WEB_INIT)
         self.assertIn(f"## v{VERSION}", README)
         self.assertTrue(RELEASE_NOTES.is_file())
