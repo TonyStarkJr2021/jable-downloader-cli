@@ -175,6 +175,19 @@ class NormalizeCodeTests(unittest.TestCase):
         )
         self.assertEqual(MODULE.supjav_search_terms("IPX-850"), ["IPX-850"])
 
+    def test_supjav_prefers_pretty_search_route_and_keeps_query_fallback(self):
+        self.assertEqual(
+            MODULE.supjav_search_urls(
+                "https://supjav.com", "", "FC2-PPV-4968930"
+            ),
+            [
+                "https://supjav.com/search/FC2PPV%204968930/",
+                "https://supjav.com/?s=FC2PPV%204968930",
+                "https://supjav.com/search/FC2-PPV-4968930/",
+                "https://supjav.com/?s=FC2-PPV-4968930",
+            ],
+        )
+
     def test_hls_quality_prefers_resolution_then_bandwidth(self):
         playlist = """#EXTM3U
 #EXT-X-STREAM-INF:BANDWIDTH=2000000,RESOLUTION=1280x720

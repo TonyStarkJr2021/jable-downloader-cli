@@ -305,6 +305,21 @@ def supjav_search_terms(code: str) -> list[str]:
     return [code]
 
 
+def supjav_search_urls(base: str, language: str, code: str) -> list[str]:
+    """Return public SupJav search routes, preferring the WAF-friendlier path form."""
+    search_root = f"{base.rstrip('/')}/{language.strip('/')}/" if language else f"{base.rstrip('/')}/"
+    urls: list[str] = []
+    for search_term in supjav_search_terms(code):
+        encoded = quote(search_term, safe="")
+        urls.extend(
+            (
+                urljoin(search_root, f"search/{encoded}/"),
+                f"{search_root}?s={encoded}",
+            )
+        )
+    return list(dict.fromkeys(urls))
+
+
 def media_directories(config: dict[str, Any]) -> tuple[Path, ...]:
     """Return the media root and classified destinations without duplicates."""
     root = Path(str(config["media_dir"]))
@@ -764,19 +779,27 @@ def capture_supjav_static(
         detail_urls = [request.detail_url]
     else:
         print("🔎 正在通过 SupJav 搜索作品...")
-        search_root = f"{base}/{language}/" if language else f"{base}/"
         detail_urls = []
-        for search_term in supjav_search_terms(request.code):
-            search_url = f"{search_root}?s={quote(search_term)}"
-            search_response = fetch(search_url, f"{base}/")
+        search_errors: list[AppError] = []
+        successful_search = False
+        for search_url in supjav_search_urls(base, language, request.code):
+            try:
+                search_response = fetch(search_url, f"{base}/")
+            except AppError as exc:
+                search_errors.append(exc)
+                continue
+            successful_search = True
             if provider_from_hostname(urlparse(str(search_response.url)).hostname or "") != "supjav":
-                raise AppError("SUPJAV 搜索页跳转到了不受支持的站点", 4)
+                search_errors.append(AppError("SUPJAV 搜索页跳转到了不受支持的站点", 4))
+                continue
             detail_urls = find_supjav_detail_urls(
                 search_response.text, request.code, str(search_response.url)
             )
             if detail_urls:
                 break
         if not detail_urls:
+            if not successful_search and search_errors:
+                raise search_errors[-1]
             raise AppError(f"SUPJAV 没找到 {request.code}", 3)
 
     max_results = max(1, min(5, int(config.get("supjav_max_results", 3))))
@@ -921,8 +944,8 @@ def capture_from_provider(
     elif source == "supjav":
         base = str(config.get("supjav_site", "https://supjav.com")).rstrip("/")
         language = str(config.get("supjav_language", "")).strip("/")
-        search_root = f"{base}/{language}/" if language else f"{base}/"
-        search_url = f"{search_root}?s={quote(request.code)}"
+        search_urls = supjav_search_urls(base, language, request.code)
+        search_url = search_urls[0]
         allow_fallback = bool(config.get("supjav_allow_m3u8_fallback", True))
     else:
         raise AppError(f"不支持的直链来源：{source}", 4)
@@ -960,31 +983,46 @@ def capture_from_provider(
             if detail_url is None:
                 labels = {"jable": "Jable", "missav": "MissAV", "supjav": "SupJav"}
                 print(f"🔎 正在通过 {labels[source]} 搜索作品...")
-                response = page.goto(
-                    search_url, wait_until="domcontentloaded", timeout=timeout_ms
-                )
-                page.wait_for_timeout(search_wait_ms)
-                if response is None:
-                    raise AppError("搜索页没有返回 HTTP 响应", 2)
-                print(f"   HTTP：{response.status}")
-                # A browser verification page may complete after the initial
-                # navigation response. Trust only a subsequently rendered,
-                # exact same-provider result; otherwise preserve the HTTP error.
-                search_html = page.content()
-                if source == "jable":
-                    detail_url = find_detail_url(search_html, request.code, base)
-                elif source == "missav":
-                    detail_url = find_missav_detail_url(
-                        search_html, request.code, page.url
+                candidate_search_urls = search_urls if source == "supjav" else [search_url]
+                last_search_status: int | None = None
+                received_success = False
+                for candidate_search_url in candidate_search_urls:
+                    response = page.goto(
+                        candidate_search_url,
+                        wait_until="domcontentloaded",
+                        timeout=timeout_ms,
                     )
-                else:
-                    detail_urls = find_supjav_detail_urls(
-                        search_html, request.code, page.url
-                    )
-                    detail_url = detail_urls[0] if detail_urls else None
-                if response.status != 200 and not detail_url:
-                    raise AppError(f"搜索页面访问失败（HTTP {response.status}）", 2)
+                    page.wait_for_timeout(search_wait_ms)
+                    if response is None:
+                        continue
+                    last_search_status = response.status
+                    print(f"   {labels[source]} HTTP：{response.status}")
+                    if response.status == 200:
+                        received_success = True
+                    # A browser verification page may complete after the initial
+                    # navigation response. Trust only a subsequently rendered,
+                    # exact same-provider result; otherwise try the next route.
+                    search_html = page.content()
+                    if source == "jable":
+                        detail_url = find_detail_url(search_html, request.code, base)
+                    elif source == "missav":
+                        detail_url = find_missav_detail_url(
+                            search_html, request.code, page.url
+                        )
+                    else:
+                        detail_urls = find_supjav_detail_urls(
+                            search_html, request.code, page.url
+                        )
+                        detail_url = detail_urls[0] if detail_urls else None
+                    if detail_url:
+                        break
                 if not detail_url:
+                    if last_search_status is None:
+                        raise AppError("搜索页没有返回 HTTP 响应", 2)
+                    if not received_success:
+                        raise AppError(
+                            f"搜索页面访问失败（HTTP {last_search_status}）", 2
+                        )
                     raise AppError(f"{source.upper()} 没找到 {request.code}", 3)
             labels = {"jable": "Jable", "missav": "MissAV", "supjav": "SupJav"}
             print(f"✅ 来源：{labels[source]}")
@@ -1018,7 +1056,7 @@ def capture_from_provider(
                 detail_url, wait_until="domcontentloaded", timeout=timeout_ms
             )
             if response:
-                print(f"   HTTP：{response.status}")
+                print(f"   {labels[source]} HTTP：{response.status}")
             if source == "missav":
                 activate_player(page)
             elif source == "supjav":
