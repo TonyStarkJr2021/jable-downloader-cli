@@ -117,7 +117,7 @@ class InstallerPlatformTests(unittest.TestCase):
         self.assertIn("supjav_adblock.py", workflow)
 
     def test_release_version_is_consistent(self):
-        self.assertEqual(VERSION, "2.7.3")
+        self.assertEqual(VERSION, "2.7.4")
         self.assertIn(f'__version__ = "{VERSION}"', WEB_INIT)
         self.assertIn(f"## v{VERSION}", README)
         self.assertTrue(RELEASE_NOTES.is_file())
