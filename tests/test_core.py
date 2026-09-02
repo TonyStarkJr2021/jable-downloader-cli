@@ -473,21 +473,19 @@ class MissAVStaticCaptureTests(unittest.TestCase):
 
 
 class SupJavProxyCaptureTests(unittest.TestCase):
-    def test_network_attempts_prefer_ipv6_then_ipv4_then_proxy(self):
+    def test_network_attempts_try_direct_then_proxy(self):
         config = {
-            "supjav_ipv6_first": True,
             "supjav_proxy_url": "http://proxy.example:8080",
         }
         self.assertEqual(
             MODULE.supjav_network_attempts(config),
             [
-                ("ipv6", "IPv6 直连"),
-                ("ipv4", "IPv4 直连"),
+                ("direct", "VPS 直连"),
                 ("proxy", "SupJav 专用代理"),
             ],
         )
 
-    def test_provider_falls_back_to_proxy_after_both_direct_routes(self):
+    def test_provider_falls_back_to_proxy_after_direct_route(self):
         stream = MODULE.CapturedStream(
             "https://cdn.example/video.m3u8",
             "supjav",
@@ -509,7 +507,6 @@ class SupJavProxyCaptureTests(unittest.TestCase):
             raise MODULE.AppError("浏览器直连不可用", 4)
 
         config = {
-            "supjav_ipv6_first": True,
             "supjav_proxy_url": "http://proxy.example:8080",
         }
         with (
@@ -521,40 +518,8 @@ class SupJavProxyCaptureTests(unittest.TestCase):
                 MODULE.parse_download_input("IPX-850"), "supjav", config
             )
         self.assertEqual(result, [stream])
-        self.assertEqual(static_calls, ["ipv6", "ipv4", "proxy"])
-        self.assertEqual(browser_calls, ["ipv6", "ipv4"])
-
-    def test_ipv6_static_search_forces_only_supjav_host_to_ipv6(self):
-        response = types.SimpleNamespace(
-            status_code=200,
-            url="https://supjav.com/search/IPX-850/",
-            text="<html></html>",
-        )
-        session = mock.Mock()
-        session.get.return_value = response
-        requests = types.SimpleNamespace(Session=mock.Mock(return_value=session))
-        config = {
-            "supjav_site": "https://supjav.com",
-            "supjav_language": "",
-            "supjav_proxy_url": "http://proxy.example:8080",
-            "_supjav_network_mode": "ipv6",
-            "page_timeout_ms": 30000,
-        }
-        with (
-            mock.patch.object(MODULE, "browser_requests", requests),
-            mock.patch("builtins.print"),
-        ):
-            with self.assertRaises(MODULE.AppError):
-                MODULE.capture_supjav_static(
-                    MODULE.parse_download_input("IPX-850"), config
-                )
-        self.assertEqual(requests.Session.call_count, 2)
-        ipv6_session = requests.Session.call_args_list[1]
-        self.assertIsNone(ipv6_session.kwargs["proxy"])
-        self.assertEqual(
-            ipv6_session.kwargs["curl_options"][MODULE.CurlOpt.IPRESOLVE],
-            MODULE.CurlIpResolve.V6,
-        )
+        self.assertEqual(static_calls, ["direct", "proxy"])
+        self.assertEqual(browser_calls, ["direct"])
 
     def test_static_search_session_uses_only_supjav_proxy(self):
         response = types.SimpleNamespace(
@@ -720,7 +685,7 @@ class LocalFileTests(unittest.TestCase):
             self.assertTrue(config["supjav_hls_relay"])
             self.assertEqual(config["supjav_proxy_url"], "")
             self.assertFalse(config["supjav_proxy_download"])
-            self.assertTrue(config["supjav_ipv6_first"])
+            self.assertNotIn("supjav_ipv6_first", config)
             self.assertTrue(config["supjav_adblock_enabled"])
             self.assertEqual(config["supjav_play_attempts"], 10)
             self.assertEqual(config["provider_probe_workers"], 3)

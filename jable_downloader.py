@@ -3,12 +3,11 @@
 
 from __future__ import annotations
 
-import json
 import ipaddress
+import json
 import os
 import re
 import shutil
-import socket
 import subprocess
 import sys
 import time
@@ -32,11 +31,8 @@ from supjav_adblock import (
 
 try:
     from curl_cffi import requests as browser_requests
-    from curl_cffi.const import CurlIpResolve, CurlOpt
 except ImportError:  # pragma: no cover - installer supplies this dependency
     browser_requests = None
-    CurlIpResolve = None
-    CurlOpt = None
 
 
 DEFAULT_CONFIG_FILES = (
@@ -163,49 +159,16 @@ def supjav_proxy_url(config: dict[str, Any]) -> str:
 
 def supjav_network_mode(config: dict[str, Any]) -> str:
     configured = str(config.get("_supjav_network_mode", "")).lower()
-    if configured in {"ipv6", "ipv4", "proxy"}:
+    if configured in {"direct", "proxy"}:
         return configured
-    return "proxy" if supjav_proxy_url(config) else "ipv4"
+    return "proxy" if supjav_proxy_url(config) else "direct"
 
 
 def supjav_network_attempts(config: dict[str, Any]) -> list[tuple[str, str]]:
-    attempts: list[tuple[str, str]] = []
-    if bool(config.get("supjav_ipv6_first", True)):
-        attempts.append(("ipv6", "IPv6 直连"))
-    attempts.append(("ipv4", "IPv4 直连"))
+    attempts = [("direct", "VPS 直连")]
     if supjav_proxy_url(config):
         attempts.append(("proxy", "SupJav 专用代理"))
     return attempts
-
-
-def curl_ip_options(mode: str) -> dict[Any, Any]:
-    if CurlOpt is None or CurlIpResolve is None:
-        return {}
-    if mode == "ipv6":
-        return {CurlOpt.IPRESOLVE: CurlIpResolve.V6}
-    if mode == "ipv4":
-        return {CurlOpt.IPRESOLVE: CurlIpResolve.V4}
-    return {}
-
-
-def resolve_ipv6_address(hostname: str) -> str:
-    try:
-        addresses = socket.getaddrinfo(
-            hostname,
-            443,
-            family=socket.AF_INET6,
-            type=socket.SOCK_STREAM,
-        )
-    except OSError as exc:
-        raise AppError(f"SUPJAV 没有可用的 IPv6 地址（{hostname}）", 4) from exc
-    for entry in addresses:
-        address = str(entry[4][0]).split("%", 1)[0]
-        try:
-            if ipaddress.ip_address(address).version == 6:
-                return address
-        except ValueError:
-            continue
-    raise AppError(f"SUPJAV 没有可用的 IPv6 地址（{hostname}）", 4)
 
 
 def normalize_code(value: str) -> str:
@@ -331,7 +294,6 @@ def load_config(path: Path | None = None) -> dict[str, Any]:
     config.setdefault("supjav_min_duration_seconds", 600)
     config.setdefault("supjav_proxy_url", "")
     config.setdefault("supjav_proxy_download", False)
-    config.setdefault("supjav_ipv6_first", True)
     config.setdefault("supjav_adblock_enabled", True)
     config.setdefault("supjav_play_attempts", 10)
     config.setdefault("provider_probe_workers", 3)
@@ -886,14 +848,6 @@ def capture_supjav_static(
         impersonate="chrome", headers=headers, proxy=proxy_url or None
     )
     supjav_session = session
-    ip_options = curl_ip_options(network_mode)
-    if ip_options:
-        supjav_session = browser_requests.Session(
-            impersonate="chrome",
-            headers=headers,
-            proxy=None,
-            curl_options=ip_options,
-        )
 
     def fetch(url: str, referer: str) -> Any:
         try:
@@ -1226,12 +1180,6 @@ def capture_from_provider(
             provider_proxy = ""
         if provider_proxy:
             launch_options["proxy"] = playwright_proxy(provider_proxy)
-        elif source == "supjav" and supjav_network_mode(config) == "ipv6":
-            supjav_host = urlparse(base).hostname or "supjav.com"
-            ipv6_address = resolve_ipv6_address(supjav_host)
-            launch_options["args"].append(
-                f"--host-resolver-rules=MAP {supjav_host} [{ipv6_address}]"
-            )
         if adblock_enabled:
             # Request interception cannot reliably observe requests owned by a
             # Service Worker, so SupJav's protected context blocks them.

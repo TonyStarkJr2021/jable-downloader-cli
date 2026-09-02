@@ -309,7 +309,7 @@ class WebAppTests(unittest.TestCase):
 
     def login(self):
         page = self.client.get("/login")
-        self.assertIn('/static/app.css?v=2.7.6', page.text)
+        self.assertIn('/static/app.css?v=2.7.7', page.text)
         token = re.search(r'name="csrf_token" value="([^"]+)"', page.text).group(1)
         response = self.client.post(
             "/login",
@@ -322,7 +322,7 @@ class WebAppTests(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 303)
         dashboard = self.client.get("/")
-        self.assertIn('/static/app.js?v=2.7.6', dashboard.text)
+        self.assertIn('/static/app.js?v=2.7.7', dashboard.text)
         return re.search(r'name="csrf-token" content="([^"]+)"', dashboard.text).group(1)
 
     def test_media_apis_require_login(self):
@@ -596,7 +596,8 @@ class WebAppTests(unittest.TestCase):
         self.assertIn("防火墙和云服务器安全组", page.text)
         self.assertIn("保存并重启 Web", page.text)
         self.assertIn("SupJav 专用代理", page.text)
-        self.assertIn("先尝试 IPv6 和 IPv4 直连", page.text)
+        self.assertIn("先尝试 VPS 直连", page.text)
+        self.assertIn("SupJav 视频下载也走代理", page.text)
         self.assertIn("当前未配置代理", page.text)
         self.assertIn("SupJav 广告防护", page.text)
         self.assertIn("不会联网下载第三方规则", page.text)
