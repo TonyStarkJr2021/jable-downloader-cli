@@ -992,6 +992,43 @@ def activate_player(page: Any) -> None:
             continue
 
 
+def choose_complete_supjav_browser_stream(
+    streams: list[CapturedStream], config: dict[str, Any]
+) -> CapturedStream:
+    """Probe every browser-captured URL and reject short ads before ranking."""
+    minimum = float(config.get("supjav_min_duration_seconds", 600))
+    complete: list[CapturedStream] = []
+    rejected_durations: list[float] = []
+    for stream in streams:
+        candidate = inspect_stream_quality(stream, config)
+        if not candidate.verified:
+            continue
+        if candidate.duration and candidate.duration < minimum:
+            rejected_durations.append(candidate.duration)
+            print(
+                f"⚠️ SupJav 浏览器捕获到 {candidate.duration:.0f} 秒短流，"
+                "继续检查其他播放器或正片线路"
+            )
+            continue
+        complete.append(candidate)
+    if complete:
+        complete.sort(key=stream_quality_key, reverse=True)
+        return complete[0]
+    if rejected_durations:
+        shortest = min(rejected_durations)
+        longest = max(rejected_durations)
+        summary = (
+            f"{shortest:.0f} 秒"
+            if shortest == longest
+            else f"{shortest:.0f}–{longest:.0f} 秒"
+        )
+        raise AppError(
+            f"SUPJAV 浏览器捕获到的流均为 {summary}，疑似预览或广告",
+            4,
+        )
+    raise AppError("SUPJAV 浏览器捕获到的 HLS 均不可用", 4)
+
+
 def capture_from_provider(
     request: DownloadInput, source: str, config: dict[str, Any]
 ) -> CapturedStream:
@@ -1024,7 +1061,7 @@ def capture_from_provider(
     request_referers: dict[str, str] = {}
     domains = preferred_domains(config, source)
     detail_url = request.detail_url if request.source == source else None
-    stream: CapturedStream | None = None
+    streams: list[CapturedStream] = []
     profile = Path(str(config["browser_profile"]))
     if source != "jable":
         profile = profile / source
@@ -1124,6 +1161,10 @@ def capture_from_provider(
                 headers = browser_request.headers
                 record(browser_request.url, str(headers.get("referer", "")))
 
+            supjav_buttons: Any | None = None
+            supjav_button_count = 0
+            supjav_button_index = 0
+            next_supjav_activation = 0.0
             page.on("request", record_request)
             page.on("response", lambda browser_response: record(browser_response.url))
             context.on(
@@ -1139,48 +1180,71 @@ def capture_from_provider(
             if source == "missav":
                 activate_player(page)
             elif source == "supjav":
-                for button in page.locator("a.btn-server[data-link]").all():
-                    try:
-                        button.click(force=True, timeout=1500)
-                        page.wait_for_timeout(600)
-                    except Exception:
-                        continue
+                supjav_buttons = page.locator("a.btn-server[data-link]")
+                try:
+                    supjav_button_count = supjav_buttons.count()
+                except Exception:
+                    supjav_button_count = 0
 
             deadline = time.monotonic() + capture_timeout_ms / 1000
-            while not preferred and time.monotonic() < deadline:
+            while (source == "supjav" or not preferred) and time.monotonic() < deadline:
+                now = time.monotonic()
+                if (
+                    source == "supjav"
+                    and supjav_buttons is not None
+                    and supjav_button_count
+                    and now >= next_supjav_activation
+                ):
+                    try:
+                        supjav_buttons.nth(
+                            supjav_button_index % supjav_button_count
+                        ).click(force=True, timeout=1500)
+                        supjav_button_index += 1
+                        page.wait_for_timeout(350)
+                        activate_player(page)
+                    except Exception:
+                        supjav_button_index += 1
+                    next_supjav_activation = time.monotonic() + 2.0
                 page.wait_for_timeout(500)
                 if source in {"missav", "supjav"} and not preferred and not fallback:
                     activate_player(page)
 
-            selected = preferred[0] if preferred else (fallback[0] if allow_fallback and fallback else None)
-            if selected:
+            candidate_urls = list(preferred)
+            if allow_fallback:
+                candidate_urls.extend(url for url in fallback if url not in candidate_urls)
+            if candidate_urls:
                 cookie_map = {
                     str(item["name"]): str(item["value"])
                     for item in context.cookies()
                     if item.get("name")
                 }
                 user_agent = str(page.evaluate("() => navigator.userAgent"))
-                stream = CapturedStream(
-                    url=selected,
-                    source=source,
-                    referer=request_referers.get(selected, str(detail_url)),
-                    user_agent=user_agent,
-                    cookies=cookie_map,
-                    proxy_url=(
-                        provider_proxy
-                        if bool(config.get("supjav_proxy_download", False))
-                        else ""
-                    ),
-                )
+                streams = [
+                    CapturedStream(
+                        url=url,
+                        source=source,
+                        referer=request_referers.get(url, str(detail_url)),
+                        user_agent=user_agent,
+                        cookies=cookie_map,
+                        proxy_url=(
+                            provider_proxy
+                            if bool(config.get("supjav_proxy_download", False))
+                            else ""
+                        ),
+                    )
+                    for url in candidate_urls[:12]
+                ]
         except PlaywrightTimeoutError as exc:
             raise AppError(f"{source.upper()} 浏览器等待页面超时，请稍后重试", 4) from exc
         finally:
             context.close()
 
-    if stream:
-        if not preferred:
+    if streams:
+        if source == "supjav":
+            return choose_complete_supjav_browser_stream(streams, config)
+        if streams[0].url not in preferred:
             print("⚠️ 未捕获首选 CDN，按配置使用备用 M3U8")
-        return stream
+        return streams[0]
     expected = "、".join(domains) or "配置的首选 CDN"
     raise AppError(f"{source.upper()} 没有捕获到 {expected} 的主视频 M3U8", 4)
 
@@ -1193,14 +1257,9 @@ def capture_candidates_from_provider(
             return capture_supjav_static(request, config)
         except AppError as exc:
             print(f"⚠️ {exc}，改用 Chromium 播放器捕获 SupJav...\n")
-    stream = inspect_stream_quality(capture_from_provider(request, source, config), config)
     if source == "supjav":
-        minimum = float(config.get("supjav_min_duration_seconds", 600))
-        if stream.duration and stream.duration < minimum:
-            raise AppError(
-                f"SUPJAV 浏览器捕获到的流仅 {stream.duration:.0f} 秒，疑似预览或广告",
-                4,
-            )
+        return [capture_from_provider(request, source, config)]
+    stream = inspect_stream_quality(capture_from_provider(request, source, config), config)
     return [stream]
 
 

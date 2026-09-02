@@ -267,6 +267,68 @@ class NormalizeCodeTests(unittest.TestCase):
             (1920, 1080, 2684340, True),
         )
 
+    def test_supjav_browser_capture_skips_short_ad_and_ranks_complete_streams(self):
+        short = MODULE.CapturedStream(
+            "https://cdn.example/ad.m3u8", "supjav", "", "UA", {}
+        )
+        complete_720 = MODULE.CapturedStream(
+            "https://cdn.example/720.m3u8", "supjav", "", "UA", {}
+        )
+        complete_1080 = MODULE.CapturedStream(
+            "https://cdn.example/1080.m3u8", "supjav", "", "UA", {}
+        )
+        inspected = {
+            short.url: MODULE.replace(
+                short, verified=True, duration=6, height=1080, bandwidth=5000000
+            ),
+            complete_720.url: MODULE.replace(
+                complete_720,
+                verified=True,
+                duration=7200,
+                height=720,
+                bandwidth=1800000,
+            ),
+            complete_1080.url: MODULE.replace(
+                complete_1080,
+                verified=True,
+                duration=7200,
+                height=1080,
+                bandwidth=4200000,
+            ),
+        }
+        with (
+            mock.patch.object(
+                MODULE,
+                "inspect_stream_quality",
+                side_effect=lambda stream, config: inspected[stream.url],
+            ),
+            mock.patch("builtins.print"),
+        ):
+            selected = MODULE.choose_complete_supjav_browser_stream(
+                [short, complete_720, complete_1080],
+                {"supjav_min_duration_seconds": 600},
+            )
+        self.assertEqual(selected.url, complete_1080.url)
+
+    def test_supjav_browser_capture_reports_when_only_short_ads_exist(self):
+        short = MODULE.CapturedStream(
+            "https://cdn.example/ad.m3u8", "supjav", "", "UA", {}
+        )
+        with (
+            mock.patch.object(
+                MODULE,
+                "inspect_stream_quality",
+                return_value=MODULE.replace(
+                    short, verified=True, duration=6, height=720
+                ),
+            ),
+            mock.patch("builtins.print"),
+        ):
+            with self.assertRaisesRegex(MODULE.AppError, "6 秒"):
+                MODULE.choose_complete_supjav_browser_stream(
+                    [short], {"supjav_min_duration_seconds": 600}
+                )
+
     def test_quality_probe_forwards_only_stream_scoped_proxy(self):
         response = types.SimpleNamespace(
             status_code=200,
