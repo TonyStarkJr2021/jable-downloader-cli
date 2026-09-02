@@ -13,6 +13,15 @@
 
 > 仅用于你有权访问和下载的内容。本项目不绕过 DRM、付费墙、验证码或访问控制。
 
+## v2.7.0
+
+- 后台设置新增 SupJav 专用代理，支持 HTTP、HTTPS 和 SOCKS5 地址；HTTP(S) 代理支持用户名和密码。
+- 默认只有 SupJav 搜索、详情页和播放器解析走代理；Jable、MissAV、JavBus 与其他下载流量保持直连。
+- 可选“SupJav 视频下载也走代理”，启用后画质探测和本机 HLS 转发使用同一代理。
+- 提供代理连接测试、凭据隐藏、当前密码验证和一键清除；页面与任务日志不会回显代理账号或密码。
+- 安装与更新自动补齐空配置，不覆盖现有路径、账号、端口、媒体、Jellyfin 或 MetaTube 设置。
+- 新增代理校验、解析范围、下载转发、Web 保存/测试/清除及升级兼容测试。
+
 ## v2.6.2
 
 - SupJav 搜索优先使用路径式公开入口，旧查询参数入口返回 403 时自动继续尝试其余入口。
@@ -223,8 +232,9 @@ n
 - 修改登录用户名；
 - 设置新的登录密码；
 - 修改 Web 访问端口。
+- 配置、测试或清除 SupJav 专用代理。
 
-修改账号或端口都必须验证当前密码。修改端口前，请先在 VPS 防火墙和云服务器安全组中放行新的 TCP 端口；保存后 Web 服务会自动重启。下载任务运行期间不能更换端口，避免中断下载。
+修改账号、端口或代理都必须验证当前密码。修改端口前，请先在 VPS 防火墙和云服务器安全组中放行新的 TCP 端口；保存后 Web 服务会自动重启。下载任务运行期间不能更换端口，避免中断下载。代理保存后从下一个任务开始生效，无需重启服务。
 
 ## 一键更新
 
@@ -345,6 +355,8 @@ sudo systemctl restart jable-downloader-web
 新安装的数据根目录由安装器自动选择：已挂载 RAID 使用 `/mnt/raid_hdd/AV`，无挂载硬盘使用 `/var/lib/jable-downloader-data`。可以查看安装结果或 `/etc/jable-downloader/config.json` 确认实际位置。使用系统盘时请留意可用空间；卸载程序不会删除该数据目录。
 
 JavBus 磁链回退默认启用，可通过 `javbus_fallback_enabled` 关闭；`javbus_site` 仅接受 JavBus 官方 HTTPS 域名，`javbus_timeout_seconds` 控制单次查询超时。此回退只在普通番号的 Jable、MissAV 与 SupJav 都明确无结果后触发，不会影响已有下载流程或媒体目录。
+
+SupJav 专用代理可在后台设置中管理。`supjav_proxy_url` 支持 `http://`、`https://` 和无需认证的 `socks5://`；HTTP(S) 代理可以包含用户名和密码。留空时继续由 VPS 直连；`supjav_proxy_download` 默认为 `false`，只让页面解析走代理。代理凭据保存在权限为 `0600` 的 `/etc/jable-downloader/config.json` 中，Web 页面与任务日志只显示不含凭据的协议、主机和端口。
 
 ## 常见问题
 
