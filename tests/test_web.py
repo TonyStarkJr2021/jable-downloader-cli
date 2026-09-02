@@ -221,7 +221,7 @@ class WebAppTests(unittest.TestCase):
 
     def login(self):
         page = self.client.get("/login")
-        self.assertIn('/static/app.css?v=2.7.2', page.text)
+        self.assertIn('/static/app.css?v=2.7.3', page.text)
         token = re.search(r'name="csrf_token" value="([^"]+)"', page.text).group(1)
         response = self.client.post(
             "/login",
@@ -234,7 +234,7 @@ class WebAppTests(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 303)
         dashboard = self.client.get("/")
-        self.assertIn('/static/app.js?v=2.7.2', dashboard.text)
+        self.assertIn('/static/app.js?v=2.7.3', dashboard.text)
         return re.search(r'name="csrf-token" content="([^"]+)"', dashboard.text).group(1)
 
     def test_media_apis_require_login(self):
@@ -456,6 +456,38 @@ class WebAppTests(unittest.TestCase):
         )
         self.assertEqual(saved.status_code, 200)
 
+    def test_supjav_adblock_settings_validate_save_and_require_csrf(self):
+        unauthenticated = self.client.post(
+            "/api/settings/supjav-protection",
+            json={"enabled": True, "play_attempts": 10},
+        )
+        self.assertEqual(unauthenticated.status_code, 401)
+        csrf = self.login()
+        missing_csrf = self.client.post(
+            "/api/settings/supjav-protection",
+            json={"enabled": True, "play_attempts": 10},
+        )
+        self.assertEqual(missing_csrf.status_code, 403)
+        invalid = self.client.post(
+            "/api/settings/supjav-protection",
+            json={"enabled": True, "play_attempts": 31},
+            headers={"X-CSRF-Token": csrf},
+        )
+        self.assertEqual(invalid.status_code, 400)
+        saved_response = self.client.post(
+            "/api/settings/supjav-protection",
+            json={"enabled": False, "play_attempts": 14},
+            headers={"X-CSRF-Token": csrf},
+        )
+        self.assertEqual(saved_response.status_code, 200)
+        saved = json.loads(self.cli_config.read_text(encoding="utf-8"))
+        self.assertFalse(saved["supjav_adblock_enabled"])
+        self.assertEqual(saved["supjav_play_attempts"], 14)
+        page = self.client.get("/settings")
+        self.assertIn("SupJav 广告防护", page.text)
+        self.assertIn('value="14"', page.text)
+        self.assertNotIn('id="adblock-enabled" name="adblock_enabled" type="checkbox" checked', page.text)
+
     def test_settings_page_contains_firewall_warning(self):
         self.login()
         page = self.client.get("/settings")
@@ -464,6 +496,8 @@ class WebAppTests(unittest.TestCase):
         self.assertIn("保存并重启 Web", page.text)
         self.assertIn("SupJav 专用代理", page.text)
         self.assertIn("当前未配置代理", page.text)
+        self.assertIn("SupJav 广告防护", page.text)
+        self.assertIn("不会联网下载第三方规则", page.text)
         self.assertNotIn("proxy-current-password", page.text)
 
 

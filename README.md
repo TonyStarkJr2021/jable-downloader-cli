@@ -13,6 +13,16 @@
 
 > 仅用于你有权访问和下载的内容。本项目不绕过 DRM、付费墙、验证码或访问控制。
 
+## v2.7.3
+
+- 新增 SupJav 专用广告防护层：压制 `window.open` 弹窗、关闭新页面并阻止主播放页跳转到外部广告站。
+- 新增项目自维护的 `rules/supjav-adblock.json`，规则只随经过测试的项目版本更新，不在用户服务器上静默下载第三方列表。
+- M3U8、媒体分片、密钥、XHR/Fetch 和播放器数据始终优先放行，广告规则异常时自动降级为基础弹窗防护，避免误伤真实下载。
+- SupJav 播放器现在按配置执行有限次数的线路轮换与播放尝试，并继续使用完整时长探测过滤短广告和预览。
+- 后台设置新增广告防护开关和播放尝试次数（默认 10，范围 1–30），保存后从下一个任务开始生效。
+- 安装、更新、回滚备份、配置示例、CI 与 Release 附件均已纳入规则文件；升级保留现有代理、路径、账号、端口、Jellyfin 与 MetaTube 设置。
+- 新增规则校验、媒体保护、随机域名导航拦截、后台保存和浏览器弹窗压制测试，完整测试数量增加至 95 项。
+
 ## v2.7.2
 
 - SupJav 的 Chromium 回退不再捕获到第一条 M3U8 就提前结束，会在完整捕获窗口内继续检查可用播放器线路。
@@ -357,6 +367,7 @@ sudo systemctl restart jable-downloader-web
 | 路径 | 用途 |
 |---|---|
 | `/opt/jable-downloader/` | 程序、Web 和管理脚本 |
+| `/opt/jable-downloader/rules/supjav-adblock.json` | 随版本发布的 SupJav 专用广告防护规则 |
 | `/etc/jable-downloader/config.json` | 下载配置 |
 | `/etc/jable-downloader/web.json` | Web 端口、用户名和密码哈希 |
 | `/var/lib/jable-downloader/` | Chromium profile 与已完成列表隐藏记录 |
@@ -374,6 +385,8 @@ sudo systemctl restart jable-downloader-web
 JavBus 磁链回退默认启用，可通过 `javbus_fallback_enabled` 关闭；`javbus_site` 仅接受 JavBus 官方 HTTPS 域名，`javbus_timeout_seconds` 控制单次查询超时。此回退只在普通番号的 Jable、MissAV 与 SupJav 都明确无结果后触发，不会影响已有下载流程或媒体目录。
 
 SupJav 专用代理可在后台设置中管理。`supjav_proxy_url` 支持 `http://`、`https://` 和无需认证的 `socks5://`；HTTP(S) 代理可以包含用户名和密码。留空时继续由 VPS 直连；`supjav_proxy_download` 默认为 `false`，只让页面解析走代理。代理凭据保存在权限为 `0600` 的 `/etc/jable-downloader/config.json` 中，Web 页面与任务日志只显示不含凭据的协议、主机和端口。
+
+SupJav 广告防护默认启用，只作用于 SupJav 的 Chromium 捕获。它会阻止外部弹窗和主页面劫持，按项目内置规则过滤确认过的广告请求，同时始终放行 M3U8、媒体分片、XHR/Fetch 和播放器数据。规则不会从第三方服务器静默更新，而是随项目版本一起安装、测试、备份和更新；可以直接在后台设置中开关并调整播放尝试次数，也可通过 `supjav_adblock_enabled` 和 `supjav_play_attempts` 配置（默认 10，范围 1–30）。
 
 ## 常见问题
 

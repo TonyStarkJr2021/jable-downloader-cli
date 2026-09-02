@@ -13,6 +13,7 @@ RELEASE_WORKFLOW = Path(__file__).parents[1] / ".github" / "workflows" / "releas
 VERSION = (Path(__file__).parents[1] / "VERSION").read_text(encoding="utf-8").strip()
 WEB_INIT = (Path(__file__).parents[1] / "jable_web" / "__init__.py").read_text(encoding="utf-8")
 RELEASE_NOTES = Path(__file__).parents[1] / f"docs/RELEASE_NOTES_v{VERSION}.md"
+ADBLOCK_RULES = Path(__file__).parents[1] / "rules" / "supjav-adblock.json"
 
 
 class InstallerPlatformTests(unittest.TestCase):
@@ -63,12 +64,18 @@ class InstallerPlatformTests(unittest.TestCase):
             self.assertIn('config.setdefault("supjav_hls_relay"', script)
             self.assertIn('config.setdefault("supjav_proxy_url"', script)
             self.assertIn('config.setdefault("supjav_proxy_download"', script)
+            self.assertIn('config.setdefault("supjav_adblock_enabled"', script)
+            self.assertIn('config.setdefault("supjav_play_attempts"', script)
+            self.assertIn("supjav_adblock.py", script)
+            self.assertIn("rules/supjav-adblock.json", script)
             self.assertIn('config.setdefault("provider_probe_workers"', script)
             self.assertIn('config.setdefault("javbus_fallback_enabled"', script)
             self.assertIn('config.setdefault("javbus_site"', script)
             self.assertIn('config.setdefault("javbus_timeout_seconds"', script)
         self.assertIn("curl-cffi", REQUIREMENTS)
         self.assertIn("FC2-PPV-1234567", README)
+        self.assertTrue(ADBLOCK_RULES.is_file())
+        self.assertIn('"schema_version": 1', ADBLOCK_RULES.read_text(encoding="utf-8"))
 
     def test_one_command_auto_selects_raid_or_system_disk(self):
         self.assertIn('RAID_DATA_ROOT="/mnt/raid_hdd/AV"', INSTALLER)
@@ -107,9 +114,10 @@ class InstallerPlatformTests(unittest.TestCase):
         workflow = RELEASE_WORKFLOW.read_text(encoding="utf-8")
         self.assertIn("git archive --format=zip", workflow)
         self.assertIn("gh release upload", workflow)
+        self.assertIn("supjav_adblock.py", workflow)
 
     def test_release_version_is_consistent(self):
-        self.assertEqual(VERSION, "2.7.2")
+        self.assertEqual(VERSION, "2.7.3")
         self.assertIn(f'__version__ = "{VERSION}"', WEB_INIT)
         self.assertIn(f"## v{VERSION}", README)
         self.assertTrue(RELEASE_NOTES.is_file())
