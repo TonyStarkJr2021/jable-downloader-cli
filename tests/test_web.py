@@ -18,7 +18,12 @@ from jable_web.media import (
     resolve_media,
 )
 from jable_web.setup_config import build_config, write_atomic
-from jable_web.tasks import DownloadTaskManager, TerminalLogParser, safe_log_line
+from jable_web.tasks import (
+    DownloadTaskManager,
+    PreservedLogBuffer,
+    TerminalLogParser,
+    safe_log_line,
+)
 
 
 class DummyTaskManager:
@@ -122,6 +127,17 @@ class MediaTests(unittest.TestCase):
             [("下载进度 20%", False), ("已合并", False)],
         )
 
+    def test_log_buffer_preserves_task_start_and_latest_output(self):
+        logs = PreservedLogBuffer(6, ["准备下载 IPX-850", "来源：SupJav"])
+        for index in range(10):
+            logs.append(f"下载日志 {index}")
+
+        visible = list(logs)
+        self.assertEqual(visible[:2], ["准备下载 IPX-850", "来源：SupJav"])
+        self.assertIn("已省略 7 行", visible[2])
+        self.assertEqual(visible[-3:], ["下载日志 7", "下载日志 8", "下载日志 9"])
+        self.assertEqual(len(visible), 6)
+
     def test_terminal_control_codes_are_removed(self):
         self.assertEqual(safe_log_line("\x1b[32mDownloading 25%\x1b[0m"), "Downloading 25%")
 
@@ -205,7 +221,7 @@ class WebAppTests(unittest.TestCase):
 
     def login(self):
         page = self.client.get("/login")
-        self.assertIn('/static/app.css?v=2.7.0', page.text)
+        self.assertIn('/static/app.css?v=2.7.1', page.text)
         token = re.search(r'name="csrf_token" value="([^"]+)"', page.text).group(1)
         response = self.client.post(
             "/login",
@@ -218,7 +234,7 @@ class WebAppTests(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 303)
         dashboard = self.client.get("/")
-        self.assertIn('/static/app.js?v=2.7.0', dashboard.text)
+        self.assertIn('/static/app.js?v=2.7.1', dashboard.text)
         return re.search(r'name="csrf-token" content="([^"]+)"', dashboard.text).group(1)
 
     def test_media_apis_require_login(self):
@@ -377,7 +393,6 @@ class WebAppTests(unittest.TestCase):
             "/api/settings/supjav-proxy",
             json={
                 "proxy_url": "ftp://proxy.example:21",
-                "current_password": "test-password-123",
             },
             headers=headers,
         )
@@ -388,7 +403,6 @@ class WebAppTests(unittest.TestCase):
             json={
                 "proxy_url": proxy_url,
                 "proxy_download": True,
-                "current_password": "test-password-123",
             },
             headers=headers,
         )
@@ -408,7 +422,6 @@ class WebAppTests(unittest.TestCase):
                 "/api/settings/supjav-proxy/test",
                 json={
                     "proxy_url": "",
-                    "current_password": "test-password-123",
                 },
                 headers=headers,
             )
@@ -416,7 +429,7 @@ class WebAppTests(unittest.TestCase):
         self.assertEqual(get.call_args.kwargs["proxy"], proxy_url)
         cleared = self.client.post(
             "/api/settings/supjav-proxy",
-            json={"clear": True, "current_password": "test-password-123"},
+            json={"clear": True},
             headers=headers,
         )
         self.assertEqual(cleared.status_code, 200)
@@ -424,17 +437,24 @@ class WebAppTests(unittest.TestCase):
         self.assertEqual(cleared_config["supjav_proxy_url"], "")
         self.assertFalse(cleared_config["supjav_proxy_download"])
 
-    def test_supjav_proxy_settings_require_current_password(self):
-        csrf = self.login()
-        response = self.client.post(
+    def test_supjav_proxy_settings_require_login_and_csrf(self):
+        unauthenticated = self.client.post(
             "/api/settings/supjav-proxy",
-            json={
-                "proxy_url": "http://proxy.example:8080",
-                "current_password": "wrong-password",
-            },
+            json={"proxy_url": "http://proxy.example:8080"},
+        )
+        self.assertEqual(unauthenticated.status_code, 401)
+        csrf = self.login()
+        missing_csrf = self.client.post(
+            "/api/settings/supjav-proxy",
+            json={"proxy_url": "http://proxy.example:8080"},
+        )
+        self.assertEqual(missing_csrf.status_code, 403)
+        saved = self.client.post(
+            "/api/settings/supjav-proxy",
+            json={"proxy_url": "http://proxy.example:8080"},
             headers={"X-CSRF-Token": csrf},
         )
-        self.assertEqual(response.status_code, 403)
+        self.assertEqual(saved.status_code, 200)
 
     def test_settings_page_contains_firewall_warning(self):
         self.login()
@@ -444,6 +464,7 @@ class WebAppTests(unittest.TestCase):
         self.assertIn("保存并重启 Web", page.text)
         self.assertIn("SupJav 专用代理", page.text)
         self.assertIn("当前未配置代理", page.text)
+        self.assertNotIn("proxy-current-password", page.text)
 
 
 class FrontendRegressionTests(unittest.TestCase):
