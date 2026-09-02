@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "revision": "2026-09-02.1",
+  "description": "Project-maintained SupJav-only network rules. Updated only with reviewed project releases.",
+  "allowed_page_hosts": [
+    "supjav.com"
+  ],
+  "blocked_hosts": [
+    "adsterra.com",
+    "doubleclick.net",
+    "exoclick.com",
+    "exosrv.com",
+    "googleadservices.com",
+    "googlesyndication.com",
+    "hilltopads.net",
+    "onclicka.com",
+    "popads.net",
+    "popcash.net",
+    "propellerads.com",
+    "trafficjunky.net"
+  ],
+  "blocked_url_contains": [
+    "/popunder/",
+    "/popunder.js",
+    "/vast.xml",
+    "/vast?",
+    "/prebid.js"
+  ]
+}

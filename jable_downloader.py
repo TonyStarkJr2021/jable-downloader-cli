@@ -22,6 +22,12 @@ from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from playwright.sync_api import sync_playwright
 
 from hls_proxy import HLSRelay
+from supjav_adblock import (
+    SUPJAV_ADBLOCK_INIT_SCRIPT,
+    SupJavAdblockRules,
+    load_supjav_adblock_rules,
+    should_block_supjav_request,
+)
 
 try:
     from curl_cffi import requests as browser_requests
@@ -274,6 +280,8 @@ def load_config(path: Path | None = None) -> dict[str, Any]:
     config.setdefault("supjav_min_duration_seconds", 600)
     config.setdefault("supjav_proxy_url", "")
     config.setdefault("supjav_proxy_download", False)
+    config.setdefault("supjav_adblock_enabled", True)
+    config.setdefault("supjav_play_attempts", 10)
     config.setdefault("provider_probe_workers", 3)
     config.setdefault("javbus_fallback_enabled", True)
     config.setdefault("javbus_site", "https://www.javbus.com")
@@ -1062,6 +1070,25 @@ def capture_from_provider(
     domains = preferred_domains(config, source)
     detail_url = request.detail_url if request.source == source else None
     streams: list[CapturedStream] = []
+    adblock_enabled = source == "supjav" and bool(
+        config.get("supjav_adblock_enabled", True)
+    )
+    adblock_rules: SupJavAdblockRules | None = None
+    adblock_stats = {"popups": 0, "requests": 0, "navigations": 0}
+    if adblock_enabled:
+        try:
+            adblock_rules = load_supjav_adblock_rules()
+        except ValueError as exc:
+            # Keep the deterministic popup/navigation shield active even if a
+            # partially upgraded installation is temporarily missing its list.
+            print(f"⚠️ SupJav 广告规则不可用：{exc}；继续启用基础弹窗防护")
+            adblock_rules = SupJavAdblockRules(
+                schema_version=1,
+                revision="fallback",
+                allowed_page_hosts=("supjav.com",),
+                blocked_hosts=(),
+                blocked_url_contains=(),
+            )
     profile = Path(str(config["browser_profile"]))
     if source != "jable":
         profile = profile / source
@@ -1082,6 +1109,10 @@ def capture_from_provider(
         provider_proxy = supjav_proxy_url(config) if source == "supjav" else ""
         if provider_proxy:
             launch_options["proxy"] = playwright_proxy(provider_proxy)
+        if adblock_enabled:
+            # Request interception cannot reliably observe requests owned by a
+            # Service Worker, so SupJav's protected context blocks them.
+            launch_options["service_workers"] = "block"
         try:
             context = playwright.chromium.launch_persistent_context(
                 str(profile), **launch_options
@@ -1092,6 +1123,55 @@ def capture_from_provider(
             raise
         try:
             page = context.pages[0] if context.pages else context.new_page()
+
+            def close_supjav_popup(popup: Any) -> None:
+                if popup == page:
+                    return
+                adblock_stats["popups"] += 1
+                try:
+                    popup.close()
+                except Exception:
+                    pass
+
+            if adblock_enabled and adblock_rules is not None:
+                context.add_init_script(SUPJAV_ADBLOCK_INIT_SCRIPT)
+
+                def intercept_supjav_request(route: Any) -> None:
+                    browser_request = route.request
+                    try:
+                        frame = browser_request.frame
+                        request_page = frame.page
+                        is_navigation = bool(browser_request.is_navigation_request())
+                        is_popup_navigation = is_navigation and request_page != page
+                        is_main_page_navigation = (
+                            is_navigation
+                            and request_page == page
+                            and frame == page.main_frame
+                        )
+                        blocked, reason = should_block_supjav_request(
+                            browser_request.url,
+                            str(browser_request.resource_type),
+                            is_navigation=is_navigation,
+                            is_main_page_navigation=is_main_page_navigation,
+                            is_popup_navigation=is_popup_navigation,
+                            rules=adblock_rules,
+                        )
+                        if blocked:
+                            adblock_stats["requests"] += 1
+                            if reason in {"popup-navigation", "external-main-navigation"}:
+                                adblock_stats["navigations"] += 1
+                            route.abort(error_code="blockedbyclient")
+                            return
+                    except Exception:
+                        # A rule failure must never make the real player fail.
+                        pass
+                    route.continue_()
+
+                context.route("**/*", intercept_supjav_request)
+                context.on("page", close_supjav_popup)
+                print(
+                    f"🛡️ 已启用 SupJav 广告防护（规则 {adblock_rules.revision}）"
+                )
             timeout_ms = int(config.get("page_timeout_ms", 30000))
             search_wait_ms = int(config.get("search_wait_ms", 5000))
             capture_timeout_ms = int(config.get("capture_timeout_ms", 20000))
@@ -1165,12 +1245,17 @@ def capture_from_provider(
             supjav_button_count = 0
             supjav_button_index = 0
             next_supjav_activation = 0.0
+            supjav_play_attempts = 0
+            supjav_play_attempt_limit = max(
+                1, min(30, int(config.get("supjav_play_attempts", 10)))
+            )
             page.on("request", record_request)
             page.on("response", lambda browser_response: record(browser_response.url))
-            context.on(
-                "page",
-                lambda popup: popup.close() if popup != page else None,
-            )
+            if not adblock_enabled:
+                context.on(
+                    "page",
+                    lambda popup: popup.close() if popup != page else None,
+                )
             print("📡 正在加载播放器...")
             response = page.goto(
                 detail_url, wait_until="domcontentloaded", timeout=timeout_ms
@@ -1192,22 +1277,32 @@ def capture_from_provider(
                 if (
                     source == "supjav"
                     and supjav_buttons is not None
-                    and supjav_button_count
+                    and supjav_play_attempts < supjav_play_attempt_limit
                     and now >= next_supjav_activation
                 ):
                     try:
-                        supjav_buttons.nth(
-                            supjav_button_index % supjav_button_count
-                        ).click(force=True, timeout=1500)
-                        supjav_button_index += 1
+                        if supjav_button_count:
+                            supjav_buttons.nth(
+                                supjav_button_index % supjav_button_count
+                            ).click(force=True, timeout=1500)
+                            supjav_button_index += 1
                         page.wait_for_timeout(350)
                         activate_player(page)
                     except Exception:
                         supjav_button_index += 1
+                    supjav_play_attempts += 1
                     next_supjav_activation = time.monotonic() + 2.0
                 page.wait_for_timeout(500)
-                if source in {"missav", "supjav"} and not preferred and not fallback:
+                if source == "missav" and not preferred and not fallback:
                     activate_player(page)
+
+            if adblock_enabled:
+                print(
+                    "🛡️ SupJav 广告防护完成："
+                    f"播放尝试 {supjav_play_attempts} 次，"
+                    f"关闭弹窗 {adblock_stats['popups']} 个，"
+                    f"阻止广告或外部跳转 {adblock_stats['requests']} 次"
+                )
 
             candidate_urls = list(preferred)
             if allow_fallback:

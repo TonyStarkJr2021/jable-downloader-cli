@@ -431,7 +431,7 @@ else
   SOURCE_DIR="$TEMP_DIR/source"
 fi
 
-for required in jable_downloader.py migrate_media_layout.py hls_proxy.py config.example.json web.example.json requirements.txt bin/n update.sh uninstall.sh VERSION systemd/jable-downloader-web.service; do
+for required in jable_downloader.py migrate_media_layout.py hls_proxy.py supjav_adblock.py rules/supjav-adblock.json config.example.json web.example.json requirements.txt bin/n update.sh uninstall.sh VERSION systemd/jable-downloader-web.service; do
   if [[ ! -f "$SOURCE_DIR/$required" ]]; then
     echo "安装源不完整，缺少：$required" >&2
     exit 1
@@ -495,6 +495,9 @@ install -d -m 0755 "$APP_DIR" "$CONFIG_DIR" "$STATE_DIR"
 install -m 0755 "$SOURCE_DIR/jable_downloader.py" "$APP_DIR/jable_downloader.py"
 install -m 0755 "$SOURCE_DIR/migrate_media_layout.py" "$APP_DIR/migrate_media_layout.py"
 install -m 0644 "$SOURCE_DIR/hls_proxy.py" "$APP_DIR/hls_proxy.py"
+install -m 0644 "$SOURCE_DIR/supjav_adblock.py" "$APP_DIR/supjav_adblock.py"
+install -d -m 0755 "$APP_DIR/rules"
+install -m 0644 "$SOURCE_DIR/rules/supjav-adblock.json" "$APP_DIR/rules/supjav-adblock.json"
 install -m 0644 "$SOURCE_DIR/requirements.txt" "$APP_DIR/requirements.txt"
 install -m 0644 "$SOURCE_DIR/config.example.json" "$APP_DIR/config.example.json"
 install -m 0644 "$SOURCE_DIR/web.example.json" "$APP_DIR/web.example.json"
@@ -559,6 +562,8 @@ config.setdefault("supjav_hls_relay", True)
 config.setdefault("supjav_min_duration_seconds", 600)
 config.setdefault("supjav_proxy_url", "")
 config.setdefault("supjav_proxy_download", False)
+config.setdefault("supjav_adblock_enabled", True)
+config.setdefault("supjav_play_attempts", 10)
 config.setdefault("provider_probe_workers", 3)
 config.setdefault("stream_probe_timeout_seconds", 12)
 config.setdefault("javbus_fallback_enabled", True)
@@ -642,7 +647,7 @@ if [[ "$WEB_ENABLED" == true ]]; then
 fi
 
 echo "[7/7] 验证安装..."
-"$APP_DIR/venv/bin/python" -m py_compile "$APP_DIR/jable_downloader.py" "$APP_DIR/migrate_media_layout.py" "$APP_DIR/hls_proxy.py" "$APP_DIR"/jable_web/*.py
+"$APP_DIR/venv/bin/python" -m py_compile "$APP_DIR/jable_downloader.py" "$APP_DIR/migrate_media_layout.py" "$APP_DIR/hls_proxy.py" "$APP_DIR/supjav_adblock.py" "$APP_DIR"/jable_web/*.py
 test -x "$CHROMIUM_PATH"
 command -v ffprobe >/dev/null
 command -v xvfb-run >/dev/null

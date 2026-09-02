@@ -26,7 +26,7 @@
       <div class="settings-heading">
         <p class="eyebrow">ADMIN SETTINGS</p>
         <h1>后台设置</h1>
-        <p class="muted">修改登录账号或 Web 访问端口。保存前需要验证当前密码。</p>
+        <p class="muted">管理登录账号、Web 端口以及 SupJav 网络设置。只有修改账号或端口需要验证当前密码。</p>
       </div>
       <section class="settings-grid">
         <article class="settings-card">
@@ -90,6 +90,22 @@
             </div>
           </form>
           <div id="proxy-message" class="settings-message" role="status" aria-live="polite"></div>
+        </article>
+        <article class="settings-card settings-card-wide">
+          <p class="eyebrow">SUPJAV PROTECTION</p>
+          <h2>SupJav 广告防护</h2>
+          <p class="muted">只在 SupJav Chromium 播放器捕获时生效。阻止弹窗和外部页面劫持，并使用随项目版本发布的本地规则；不会联网下载第三方规则。</p>
+          <form id="protection-form" class="settings-form proxy-form">
+            <label class="check-row">
+              <input id="adblock-enabled" name="adblock_enabled" type="checkbox" {% if supjav_adblock_enabled %}checked{% endif %}>
+              <span>启用 SupJav 广告防护（推荐）</span>
+            </label>
+            <label for="play-attempts">最多播放尝试次数</label>
+            <input id="play-attempts" name="play_attempts" type="number" min="1" max="30" value="{{ supjav_play_attempts }}" required>
+            <p class="muted">每次尝试都会继续捕获视频流；完整性检查仍会排除短广告和预览。默认 10 次。</p>
+            <button class="primary-button" type="submit">保存广告防护</button>
+          </form>
+          <div id="protection-message" class="settings-message" role="status" aria-live="polite"></div>
         </article>
       </section>
     </main>

@@ -600,6 +600,8 @@ class LocalFileTests(unittest.TestCase):
             self.assertTrue(config["supjav_hls_relay"])
             self.assertEqual(config["supjav_proxy_url"], "")
             self.assertFalse(config["supjav_proxy_download"])
+            self.assertTrue(config["supjav_adblock_enabled"])
+            self.assertEqual(config["supjav_play_attempts"], 10)
             self.assertEqual(config["provider_probe_workers"], 3)
             self.assertTrue(config["javbus_fallback_enabled"])
             self.assertEqual(config["javbus_site"], "https://www.javbus.com")

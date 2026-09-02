@@ -260,6 +260,12 @@ def create_app(
             proxy_label = proxy_display_label(current_proxy)
         except ValueError:
             proxy_label = "配置格式无效"
+        try:
+            supjav_play_attempts = max(
+                1, min(30, int(current_cli_config.get("supjav_play_attempts", 10)))
+            )
+        except (TypeError, ValueError):
+            supjav_play_attempts = 10
         return templates.TemplateResponse(
             request=request,
             name="settings.html",
@@ -271,6 +277,10 @@ def create_app(
                 "supjav_proxy_download": bool(
                     current_cli_config.get("supjav_proxy_download", False)
                 ),
+                "supjav_adblock_enabled": bool(
+                    current_cli_config.get("supjav_adblock_enabled", True)
+                ),
+                "supjav_play_attempts": supjav_play_attempts,
                 "csrf_token": session.csrf_token,
                 "app_version": __version__,
             },
@@ -424,6 +434,36 @@ def create_app(
             "configured": bool(proxy_url),
             "proxy_label": proxy_display_label(proxy_url),
             "proxy_download": proxy_download,
+        }
+
+    @app.post("/api/settings/supjav-protection")
+    async def update_supjav_protection(request: Request):
+        session = require_session(request)
+        require_csrf(request, session)
+        payload = await request.json()
+        if not isinstance(payload, dict):
+            raise HTTPException(status_code=400, detail="请求格式错误")
+        enabled = payload.get("enabled")
+        if not isinstance(enabled, bool):
+            raise HTTPException(status_code=400, detail="广告防护开关无效")
+        try:
+            play_attempts = int(payload.get("play_attempts"))
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail="请输入有效的播放尝试次数") from exc
+        if not 1 <= play_attempts <= 30:
+            raise HTTPException(status_code=400, detail="播放尝试次数必须在 1–30 之间")
+        try:
+            with app.state.config_lock:
+                config = load_json(app.state.cli_config_path)
+                config["supjav_adblock_enabled"] = enabled
+                config["supjav_play_attempts"] = play_attempts
+                write_atomic(app.state.cli_config_path, config)
+        except OSError as exc:
+            raise HTTPException(status_code=500, detail="保存 SupJav 广告防护失败") from exc
+        return {
+            "message": "SupJav 广告防护设置已保存，下个任务生效",
+            "enabled": enabled,
+            "play_attempts": play_attempts,
         }
 
     @app.get("/api/status")

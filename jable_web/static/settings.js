@@ -139,3 +139,19 @@ document.querySelector("#proxy-clear")?.addEventListener("click", async () => {
     showMessage(message, error.message);
   }
 });
+
+document.querySelector("#protection-form")?.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const message = document.querySelector("#protection-message");
+  const values = new FormData(form);
+  try {
+    const result = await requestJson("/api/settings/supjav-protection", {
+      enabled: document.querySelector("#adblock-enabled").checked,
+      play_attempts: values.get("play_attempts"),
+    });
+    showMessage(message, result.message, true);
+  } catch (error) {
+    showMessage(message, error.message);
+  }
+});
