@@ -49,11 +49,11 @@ jobs:
           if ! gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
             if [[ -n "$NOTES" ]]; then
               gh release create "$RELEASE_TAG" \
-                --title "Jable + MissAV Downloader ${RELEASE_TAG}" \
+                --title "Jable + MissAV + SupJav Downloader ${RELEASE_TAG}" \
                 --notes-file "$NOTES"
             else
               gh release create "$RELEASE_TAG" \
-                --title "Jable + MissAV Downloader ${RELEASE_TAG}" \
+                --title "Jable + MissAV + SupJav Downloader ${RELEASE_TAG}" \
                 --generate-notes
             fi
           fi
