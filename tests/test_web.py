@@ -204,7 +204,7 @@ class WebAppTests(unittest.TestCase):
 
     def login(self):
         page = self.client.get("/login")
-        self.assertIn('/static/app.css?v=2.6.1', page.text)
+        self.assertIn('/static/app.css?v=2.6.2', page.text)
         token = re.search(r'name="csrf_token" value="([^"]+)"', page.text).group(1)
         response = self.client.post(
             "/login",
@@ -217,7 +217,7 @@ class WebAppTests(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 303)
         dashboard = self.client.get("/")
-        self.assertIn('/static/app.js?v=2.6.1', dashboard.text)
+        self.assertIn('/static/app.js?v=2.6.2', dashboard.text)
         return re.search(r'name="csrf-token" content="([^"]+)"', dashboard.text).group(1)
 
     def test_media_apis_require_login(self):
