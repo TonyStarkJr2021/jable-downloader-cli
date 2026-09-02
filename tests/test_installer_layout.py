@@ -107,7 +107,7 @@ class InstallerPlatformTests(unittest.TestCase):
         self.assertIn("gh release upload", workflow)
 
     def test_release_version_is_consistent(self):
-        self.assertEqual(VERSION, "2.6.0")
+        self.assertEqual(VERSION, "2.6.1")
         self.assertIn(f'__version__ = "{VERSION}"', WEB_INIT)
         self.assertIn(f"## v{VERSION}", README)
         self.assertTrue(RELEASE_NOTES.is_file())
