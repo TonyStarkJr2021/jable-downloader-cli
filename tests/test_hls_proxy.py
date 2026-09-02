@@ -1,8 +1,10 @@
 import unittest
 import urllib.error
 import urllib.request
+import types
 from unittest import mock
 
+import hls_proxy
 from hls_proxy import HLSRelay, RelayResponse
 
 
@@ -48,6 +50,25 @@ class HLSRelayTests(unittest.TestCase):
                 self.assertEqual(missing.exception.code, 404)
             finally:
                 relay.stop()
+
+    def test_supjav_fake_segment_header_is_removed_only_on_ts_sync(self):
+        packets = b"".join(b"\x47" + bytes([index]) * 187 for index in range(5))
+        response = types.SimpleNamespace(
+            status_code=200,
+            content=b"fake-image-header" + packets,
+            text="",
+            headers={"Content-Type": "image/png"},
+        )
+        requests = types.SimpleNamespace(get=mock.Mock(return_value=response))
+        relay = HLSRelay(
+            "https://lk1.supremejav.com/player",
+            "Browser UA",
+            strip_fake_ts_header=True,
+        )
+        with mock.patch.object(hls_proxy, "browser_requests", requests):
+            fetched = relay._fetch("https://cdn.example/segment.png")
+        self.assertEqual(fetched.body, packets)
+        self.assertEqual(fetched.body[0], 0x47)
 
 
 if __name__ == "__main__":

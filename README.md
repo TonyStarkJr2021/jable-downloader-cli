@@ -1,6 +1,6 @@
-# Jable + MissAV Downloader
+# Jable + MissAV + SupJav Downloader
 
-带登录保护的 Jable / MissAV 自动下载面板：输入番号或详情页链接，服务器完成来源识别、HLS 捕获、下载合并与 JAV / FC2 分类归档；直链来源均无结果时，可在 Web 页面查看 JavBus 推荐磁链，同时保留全局命令 `n`。
+带登录保护的 Jable / MissAV / SupJav 自动下载面板：输入番号或详情页链接，服务器会并行解析三个来源，按实际分辨率和码率选择最佳 HLS，并在下载失败时自动尝试其余可用直链；全部直链来源均无结果时，可在 Web 页面查看 JavBus 推荐磁链，同时保留全局命令 `n`。
 
 [![Release](https://img.shields.io/github/v/release/TonyStarkJr2021/jable-downloader-cli?display_name=tag)](https://github.com/TonyStarkJr2021/jable-downloader-cli/releases/latest)
 [![CI](https://github.com/TonyStarkJr2021/jable-downloader-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/TonyStarkJr2021/jable-downloader-cli/actions/workflows/ci.yml)
@@ -12,6 +12,16 @@
 ![Jable Downloader Web 控制台预览](docs/preview.png)
 
 > 仅用于你有权访问和下载的内容。本项目不绕过 DRM、付费墙、验证码或访问控制。
+
+## v2.6.0
+
+- 新增 SupJav 公开 HLS 来源，普通番号与 FC2 番号现在会并行解析 Jable、MissAV、SupJav。
+- 汇总三个来源的可用直链，并按实际分辨率、码率、时长排序后选择最佳资源。
+- 当前直链下载失败时自动切换下一条候选；每条候选使用独立临时文件，避免失败分片污染后续下载。
+- SupJav 支持站点使用的 FC2 搜索写法、多个播放器服务器、浏览器捕获回退和短预览过滤。
+- 新增 HLS 有效性验证，不再把 404 或空 M3U8 外壳误判为可用资源。
+- SupJav 下载保留播放器请求上下文，并兼容部分服务器在 MPEG-TS 分片前添加的伪装数据。
+- 安装和更新脚本会为现有部署补齐 SupJav 配置，不改动原媒体目录、账号、端口及 Jellyfin / MetaTube 配置。
 
 ## v2.5.0
 
@@ -40,10 +50,10 @@
 ```text
 番号或详情页
 ├── 普通 JAV
-│   ├── Jable → MissAV 找到直链 → 捕获公开 HLS / M3U8
+│   ├── 并行解析 Jable / MissAV / SupJav → 按画质排序公开 HLS / M3U8
 │   │   └── N_m3u8DL-RE + FFmpeg → media/JAV/番号/番号.mp4
-│   └── 两者均无直链 → JavBus 推荐磁链（手动复制）
-└── FC2 → MissAV → 捕获公开 HLS / M3U8
+│   └── 三者均无直链 → JavBus 推荐磁链（手动复制）
+└── FC2 → 并行解析 Jable / MissAV / SupJav → 按画质排序公开 HLS / M3U8
     └── N_m3u8DL-RE + FFmpeg → media/FC2/番号/番号.mp4
 ```
 
@@ -52,8 +62,9 @@
 - 浏览器访问 `http://服务器IP:端口`，用户名和密码登录
 - 首次安装自动生成随机可用端口、随机用户名和强密码
 - 输入 `IPX-850`、`300MIUM-1483`、`1PONDO-123456`、`FC2-PPV-1234567` 或详情页链接，自动标准化并查重
-- 自动识别来源：FC2 使用 MissAV；普通番号优先使用 Jable，未找到时转到 MissAV
-- 普通番号的两个直链来源均无结果时，在 Web 页面按画质、字幕、分享日期和大小推荐 JavBus 磁链
+- 自动并行解析 Jable、MissAV、SupJav，并按实际分辨率、码率和时长排列可用直链
+- 最佳直链下载失败时自动切换下一条，各候选来源使用独立临时文件，避免失败分片互相污染
+- 普通番号的三个直链来源均无结果时，在 Web 页面按画质、字幕、分享日期和大小推荐 JavBus 磁链
 - 磁链只供手动复制到用户自己的下载工具，项目不会自动提交或下载 BT 任务
 - 实时查看任务状态和运行日志，同一时间只运行一个下载任务
 - 自动分类归档：普通 JAV 写入 `media/JAV/番号`，FC2 写入 `media/FC2/番号`
@@ -62,7 +73,8 @@
 - 浏览器下载支持 HTTP Range，可暂停或续传；只复制到本地，不删除服务器原文件
 - Jable 使用 headed Chromium + Xvfb + Playwright + 持久 profile，优先捕获 `mushroomtrack.com`
 - MissAV 优先安全解析公开播放器数据，页面结构变化时自动改用 Chromium，优先选择 `surrit.com`
-- MissAV 流量通过仅监听 `127.0.0.1` 的临时 HLS 转发层下载，任务结束即关闭
+- SupJav 解析公开服务器入口，过滤短预览流，并兼容部分分片前的非视频伪装数据
+- MissAV 与 SupJav 流量通过仅监听 `127.0.0.1` 的临时 HLS 转发层下载，任务结束即关闭
 - N_m3u8DL-RE + FFmpeg，固定启用 `--use-ffmpeg-concat-demuxer`
 - `ulimit -n 65535`，已通过 1972、2295 分片长视频验证
 - 保留 CLI：`n`、`n IPX-850`、`n 300MIUM-1483`、`n FC2-PPV-1234567`
@@ -158,10 +170,10 @@ https://missav.ai/en/fc2-ppv-1234567
 
 自动识别规则：
 
-- FC2 番号直接使用 MissAV；
-- 普通番号先搜索 Jable，未找到时自动转到 MissAV；
-- 普通番号在 Jable 和 MissAV 均无直链时，Web 页面显示 JavBus 推荐磁链；
-- 详情页链接按域名直接选择 Jable 或 MissAV；
+- 普通番号与 FC2 番号都会并行解析 Jable、MissAV、SupJav，并按实际画质排序；
+- 下载过程中当前直链失败时，会自动换用下一条候选直链；
+- 普通番号在三个直链来源均无结果时，Web 页面显示 JavBus 推荐磁链；
+- Jable、MissAV 的含番号详情页链接可直接识别；SupJav 请直接输入番号，因为其详情页地址通常只有数字 ID；
 - 不支持其他网站链接，也不会请求链接中指定的任意服务器。
 
 下载完成后：
@@ -315,7 +327,7 @@ sudo systemctl restart jable-downloader-web
 
 新安装的数据根目录由安装器自动选择：已挂载 RAID 使用 `/mnt/raid_hdd/AV`，无挂载硬盘使用 `/var/lib/jable-downloader-data`。可以查看安装结果或 `/etc/jable-downloader/config.json` 确认实际位置。使用系统盘时请留意可用空间；卸载程序不会删除该数据目录。
 
-JavBus 磁链回退默认启用，可通过 `javbus_fallback_enabled` 关闭；`javbus_site` 仅接受 JavBus 官方 HTTPS 域名，`javbus_timeout_seconds` 控制单次查询超时。此回退只在普通番号的 Jable 与 MissAV 都明确无结果后触发，不会影响已有下载流程或媒体目录。
+JavBus 磁链回退默认启用，可通过 `javbus_fallback_enabled` 关闭；`javbus_site` 仅接受 JavBus 官方 HTTPS 域名，`javbus_timeout_seconds` 控制单次查询超时。此回退只在普通番号的 Jable、MissAV 与 SupJav 都明确无结果后触发，不会影响已有下载流程或媒体目录。
 
 ## 常见问题
 
@@ -339,11 +351,11 @@ Jellyfin 官方对“电影”媒体库的推荐结构是一部电影一个目�
 
 ### 搜索返回 403 或停在验证页
 
-MissAV 会先尝试读取公开播放器数据，失败后才改用持久 Chromium profile；Jable 仍直接使用 Chromium。保留 profile 后重试。站点策略可能变化，本项目不提供绕过验证码或访问控制的功能。
+MissAV 与 SupJav 会先尝试读取公开播放器数据，失败后才改用 Chromium；Jable 仍直接使用 Chromium。每个并发来源使用独立 profile，避免互相占用。站点策略可能变化，本项目不提供绕过验证码或访问控制的功能。
 
-### MissAV 捕获成功但分片返回 403
+### MissAV 或 SupJav 捕获成功但分片返回 403
 
-保持 `missav_hls_relay` 为 `true`。该功能只在下载任务期间监听服务器本机的随机端口，并使用播放器捕获到的请求上下文读取公开可播放的 HLS 分片。
+保持 `missav_hls_relay` 和 `supjav_hls_relay` 为 `true`。该功能只在下载任务期间监听服务器本机的随机端口，并使用播放器捕获到的请求上下文读取公开可播放的 HLS 分片。
 
 ### 出现 Too many open files
 

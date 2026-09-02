@@ -80,7 +80,7 @@ class NormalizeCodeTests(unittest.TestCase):
         ordinary = MODULE.parse_download_input("ipx850")
         self.assertEqual((ordinary.code, ordinary.source), ("IPX-850", "auto"))
         fc2 = MODULE.parse_download_input("fc2ppv4968748")
-        self.assertEqual((fc2.code, fc2.source), ("FC2-PPV-4968748", "missav"))
+        self.assertEqual((fc2.code, fc2.source), ("FC2-PPV-4968748", "fc2"))
 
     def test_supported_detail_urls_are_sanitized_and_routed(self):
         jable = MODULE.parse_download_input(
@@ -105,29 +105,41 @@ class NormalizeCodeTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     MODULE.parse_download_input(value)
 
-    def test_ordinary_code_falls_back_from_jable_to_missav(self):
+    def test_ordinary_code_probes_all_three_providers_and_ranks_quality(self):
         request = MODULE.parse_download_input("IPX-850")
-        expected = MODULE.CapturedStream(
+        missav = MODULE.CapturedStream(
             "https://surrit.example/playlist.m3u8",
             "missav",
             "https://missav.ai/en/ipx-850",
             "Browser UA",
             {},
+            height=720,
+        )
+        supjav = MODULE.CapturedStream(
+            "https://cdn.example/playlist.m3u8",
+            "supjav",
+            "https://supjav.com/1.html",
+            "Browser UA",
+            {},
+            height=1080,
         )
 
         def capture(_request, source, _config):
             if source == "jable":
                 raise MODULE.AppError("JABLE 没找到 IPX-850", 3)
-            return expected
+            return [missav if source == "missav" else supjav]
 
         with (
-            mock.patch.object(MODULE, "capture_from_provider", side_effect=capture) as provider,
+            mock.patch.object(
+                MODULE, "capture_candidates_from_provider", side_effect=capture
+            ) as provider,
             mock.patch("builtins.print"),
         ):
-            result = MODULE.capture_stream(request, {})
-        self.assertEqual(result, expected)
+            result = MODULE.capture_streams(request, {})
+        self.assertEqual(result, [supjav, missav])
         self.assertEqual(
-            [call.args[1] for call in provider.call_args_list], ["jable", "missav"]
+            {call.args[1] for call in provider.call_args_list},
+            {"jable", "missav", "supjav"},
         )
 
     def test_all_not_found_preserves_distinct_exit_code_for_web_fallback(self):
@@ -138,13 +150,46 @@ class NormalizeCodeTests(unittest.TestCase):
 
         with (
             mock.patch.object(
-                MODULE, "capture_from_provider", side_effect=unavailable
+                MODULE, "capture_candidates_from_provider", side_effect=unavailable
             ),
             mock.patch("builtins.print"),
         ):
             with self.assertRaises(MODULE.AppError) as raised:
                 MODULE.capture_stream(request, {})
         self.assertEqual(raised.exception.exit_code, 3)
+
+    def test_supjav_search_results_require_exact_code(self):
+        html = """
+        <div class="post"><a href="/100.html" title="IPX-850 full"></a></div>
+        <div class="post"><a href="/101.html" title="IPX-8500 other"></a></div>
+        """
+        self.assertEqual(
+            MODULE.find_supjav_detail_urls(html, "IPX-850", "https://supjav.com/"),
+            ["https://supjav.com/100.html"],
+        )
+
+    def test_supjav_uses_site_specific_fc2_search_spelling(self):
+        self.assertEqual(
+            MODULE.supjav_search_terms("FC2-PPV-4968930"),
+            ["FC2PPV 4968930", "FC2-PPV-4968930"],
+        )
+        self.assertEqual(MODULE.supjav_search_terms("IPX-850"), ["IPX-850"])
+
+    def test_hls_quality_prefers_resolution_then_bandwidth(self):
+        playlist = """#EXTM3U
+#EXT-X-STREAM-INF:BANDWIDTH=2000000,RESOLUTION=1280x720
+720/video.m3u8
+#EXT-X-STREAM-INF:BANDWIDTH=4500000,RESOLUTION=1920x1080
+1080/video.m3u8
+"""
+        self.assertEqual(
+            MODULE.hls_playlist_quality(playlist, "https://cdn.example/master.m3u8"),
+            (1920, 1080, 4500000, "https://cdn.example/1080/video.m3u8"),
+        )
+
+    def test_empty_hls_shell_is_not_usable(self):
+        self.assertFalse(MODULE.hls_playlist_usable("#EXTM3U\n#EXT-X-VERSION:6\n"))
+        self.assertTrue(MODULE.hls_playlist_usable("#EXTM3U\n#EXTINF:4.0,\na.ts\n"))
 
 
 class MissAVStaticCaptureTests(unittest.TestCase):
@@ -309,6 +354,9 @@ class LocalFileTests(unittest.TestCase):
             self.assertEqual(config["jable_site"], "https://jable.tv")
             self.assertEqual(config["missav_site"], "https://missav.ai")
             self.assertTrue(config["missav_hls_relay"])
+            self.assertEqual(config["supjav_site"], "https://supjav.com")
+            self.assertTrue(config["supjav_hls_relay"])
+            self.assertEqual(config["provider_probe_workers"], 3)
             self.assertTrue(config["javbus_fallback_enabled"])
             self.assertEqual(config["javbus_site"], "https://www.javbus.com")
             self.assertEqual(Path(config["jav_media_dir"]), Path("/tmp/media") / "JAV")
@@ -392,6 +440,45 @@ class LocalFileTests(unittest.TestCase):
             self.assertEqual(found, output)
             self.assertEqual(run.call_args.args[0][1], "http://127.0.0.1:32100/resource/1")
             relay.stop.assert_called_once()
+
+    def test_ranked_download_falls_back_without_reusing_partial_name(self):
+        with tempfile.TemporaryDirectory() as root:
+            root_path = Path(root)
+            work = root_path / "work"
+            downloads = root_path / "downloads"
+            work.mkdir()
+            downloads.mkdir()
+            config = {
+                "work_dir": str(work),
+                "download_dir": str(downloads),
+                "n_m3u8dl_re": "/usr/local/bin/N_m3u8DL-RE",
+                "n_m3u8dl_extra_args": [],
+                "supjav_hls_relay": False,
+                "missav_hls_relay": False,
+            }
+            streams = [
+                MODULE.CapturedStream("https://one/test.m3u8", "supjav", "", "", {}),
+                MODULE.CapturedStream("https://two/test.m3u8", "missav", "", "", {}),
+            ]
+
+            def execute(command, **_kwargs):
+                save_name = command[command.index("--save-name") + 1]
+                if "__supjav_" in save_name:
+                    return types.SimpleNamespace(returncode=1)
+                (downloads / f"{save_name}.mp4").write_bytes(b"media")
+                return types.SimpleNamespace(returncode=0)
+
+            with (
+                mock.patch.object(MODULE.subprocess, "run", side_effect=execute) as run,
+                mock.patch("builtins.print"),
+            ):
+                result = MODULE.download_from_candidates("IPX-850", streams, config)
+            self.assertEqual(result.name, "IPX-850.mp4")
+            names = [
+                call.args[0][call.args[0].index("--save-name") + 1]
+                for call in run.call_args_list
+            ]
+            self.assertEqual(names, ["IPX-850__supjav_1", "IPX-850__missav_2"])
 
 
 if __name__ == "__main__":

@@ -32,11 +32,13 @@ class HLSRelay:
         user_agent: str,
         cookies: dict[str, str] | None = None,
         host: str = "127.0.0.1",
+        strip_fake_ts_header: bool = False,
     ) -> None:
         self.referer = referer
         self.user_agent = user_agent
         self.cookies = dict(cookies or {})
         self.host = host
+        self.strip_fake_ts_header = strip_fake_ts_header
         self._lock = threading.Lock()
         self._next_id = 0
         self._ids_by_url: dict[str, int] = {}
@@ -83,7 +85,7 @@ class HLSRelay:
 
     def _fetch(self, upstream_url: str, byte_range: str | None = None) -> RelayResponse:
         if browser_requests is None:
-            raise RuntimeError("curl-cffi 未安装，无法使用 MissAV HLS 转发")
+            raise RuntimeError("curl-cffi 未安装，无法使用 HLS 转发")
         parsed = urlparse(self.referer)
         origin = f"{parsed.scheme}://{parsed.netloc}" if parsed.netloc else self.referer
         headers = {
@@ -111,6 +113,21 @@ class HLSRelay:
         if "#EXTM3U" in text:
             body = self.rewrite_playlist(text, upstream_url).encode("utf-8")
             content_type = "application/vnd.apple.mpegurl"
+        elif self.strip_fake_ts_header and body and body[0] != 0x47:
+            # Some SupJav hosts prepend image-like junk to MPEG-TS segments.
+            # Accept an offset only when five 188-byte sync positions agree.
+            limit = min(max(0, len(body) - 188 * 4 - 1), 8000)
+            offset = None
+            for candidate in range(limit + 1):
+                if all(
+                    candidate + 188 * index < len(body)
+                    and body[candidate + 188 * index] == 0x47
+                    for index in range(5)
+                ):
+                    offset = candidate
+                    break
+            if offset is not None:
+                body = body[offset:]
         return RelayResponse(
             body=body,
             content_type=content_type,
@@ -122,7 +139,7 @@ class HLSRelay:
         if self._server is not None:
             return self._register(upstream_url)
         if not self.available():
-            raise RuntimeError("curl-cffi 未安装，无法使用 MissAV HLS 转发")
+            raise RuntimeError("curl-cffi 未安装，无法使用 HLS 转发")
         relay = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -171,4 +188,3 @@ class HLSRelay:
             self._thread.join(timeout=3)
         self._server = None
         self._thread = None
-

@@ -138,7 +138,7 @@ class MediaTests(unittest.TestCase):
         )
         self.assertFalse(popen.call_args.kwargs["text"])
         self.assertEqual(popen.call_args.kwargs["env"]["PYTHONUNBUFFERED"], "1")
-        self.assertEqual(manager.snapshot()["source"], "missav")
+        self.assertEqual(manager.snapshot()["source"], "fc2")
 
 
 class SetupConfigTests(unittest.TestCase):
@@ -204,7 +204,7 @@ class WebAppTests(unittest.TestCase):
 
     def login(self):
         page = self.client.get("/login")
-        self.assertIn('/static/app.css?v=2.5.0', page.text)
+        self.assertIn('/static/app.css?v=2.6.0', page.text)
         token = re.search(r'name="csrf_token" value="([^"]+)"', page.text).group(1)
         response = self.client.post(
             "/login",
@@ -217,7 +217,7 @@ class WebAppTests(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 303)
         dashboard = self.client.get("/")
-        self.assertIn('/static/app.js?v=2.5.0', dashboard.text)
+        self.assertIn('/static/app.js?v=2.6.0', dashboard.text)
         return re.search(r'name="csrf-token" content="([^"]+)"', dashboard.text).group(1)
 
     def test_media_apis_require_login(self):
@@ -385,8 +385,8 @@ class FrontendRegressionTests(unittest.TestCase):
         css = (root / "static" / "app.css").read_text(encoding="utf-8")
         self.assertIn("<h2>已完成</h2>", dashboard)
         self.assertIn("点击对应项目右侧的“查看”", dashboard)
-        self.assertIn("FC2 使用 MissAV", dashboard)
-        self.assertIn("普通番号优先使用 Jable", dashboard)
+        self.assertIn("并行解析 Jable、MissAV、SupJav", dashboard)
+        self.assertIn("按真实分辨率和码率选择最佳直链", dashboard)
         self.assertIn("300MIUM-1483", dashboard)
         self.assertIn("服务器存储", dashboard)
         self.assertIn("JavBus 推荐磁链", dashboard)

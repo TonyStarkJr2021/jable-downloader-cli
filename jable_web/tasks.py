@@ -104,9 +104,11 @@ class DownloadTaskManager:
         code = request.code
         argument = request.detail_url or code
         source_labels = {
-            "auto": "自动：Jable → MissAV",
+            "auto": "自动：并行解析 Jable / MissAV / SupJav",
+            "fc2": "自动：并行解析 Jable / MissAV / SupJav",
             "jable": "Jable",
             "missav": "MissAV",
+            "supjav": "SupJav",
         }
         with self._lock:
             if self._state["state"] in {"running", "searching"}:
