@@ -7,6 +7,17 @@ let managingMedia = false;
 let currentMediaItems = [];
 const selectedMedia = new Set();
 
+function clearRestoredInputFocus() {
+  const codeInput = document.querySelector("#code");
+  if (codeInput && document.activeElement === codeInput) codeInput.blur();
+}
+
+// Mobile browsers may restore the focused form control after a reload even
+// without an autofocus attribute. Move focus away on both a normal load and a
+// back-forward-cache restore so opening the dashboard never summons the IME.
+clearRestoredInputFocus();
+window.addEventListener("pageshow", clearRestoredInputFocus);
+
 function formatBytes(value) {
   if (!Number.isFinite(value)) return "—";
   const units = ["B", "KB", "MB", "GB", "TB"];

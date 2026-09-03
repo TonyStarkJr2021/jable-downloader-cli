@@ -309,7 +309,7 @@ class WebAppTests(unittest.TestCase):
 
     def login(self):
         page = self.client.get("/login")
-        self.assertIn('/static/app.css?v=2.7.7', page.text)
+        self.assertIn('/static/app.css?v=2.7.8', page.text)
         token = re.search(r'name="csrf_token" value="([^"]+)"', page.text).group(1)
         response = self.client.post(
             "/login",
@@ -322,7 +322,7 @@ class WebAppTests(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 303)
         dashboard = self.client.get("/")
-        self.assertIn('/static/app.js?v=2.7.7', dashboard.text)
+        self.assertIn('/static/app.js?v=2.7.8', dashboard.text)
         return re.search(r'name="csrf-token" content="([^"]+)"', dashboard.text).group(1)
 
     def test_media_apis_require_login(self):
@@ -330,6 +330,44 @@ class WebAppTests(unittest.TestCase):
         self.assertEqual(self.client.get("/download/IPX-850.mp4").status_code, 401)
         self.assertEqual(
             self.client.get("/settings", follow_redirects=False).status_code, 303
+        )
+
+    def test_login_and_dashboard_do_not_request_initial_input_focus(self):
+        login = self.client.get("/login")
+        self.assertNotIn("autofocus", login.text)
+        self.login()
+        dashboard = self.client.get("/")
+        self.assertIn('id="code"', dashboard.text)
+        script = self.client.get("/static/app.js")
+        self.assertIn("clearRestoredInputFocus", script.text)
+        self.assertIn('window.addEventListener("pageshow"', script.text)
+
+    def test_stale_login_form_returns_utf8_html_and_refreshes_csrf(self):
+        page = self.client.get("/login")
+        original = re.search(
+            r'name="csrf_token" value="([^"]+)"', page.text
+        ).group(1)
+        response = self.client.post(
+            "/login",
+            data={
+                "csrf_token": "stale-token",
+                "username": "admin",
+                "password": "test-password-123",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.encoding.lower(), "utf-8")
+        self.assertTrue(response.headers["content-type"].startswith("text/html"))
+        self.assertIn("登录页面已失效", response.text)
+        self.assertNotIn('"detail"', response.text)
+        refreshed = re.search(
+            r'name="csrf_token" value="([^"]+)"', response.text
+        ).group(1)
+        self.assertNotEqual(refreshed, original)
+        self.assertEqual(
+            self.client.cookies.get("jable_login_csrf"),
+            refreshed,
         )
 
     def test_login_csrf_task_csrf_and_range_download(self):

@@ -16,7 +16,7 @@
       <form action="/login" method="post" class="stack-form">
         <input type="hidden" name="csrf_token" value="{{ login_csrf }}">
         <label for="username">用户名</label>
-        <input id="username" name="username" autocomplete="username" required autofocus>
+        <input id="username" name="username" autocomplete="username" required>
         <label for="password">密码</label>
         <input id="password" name="password" type="password" autocomplete="current-password" required>
         <button type="submit" class="primary-button">登录控制台</button>

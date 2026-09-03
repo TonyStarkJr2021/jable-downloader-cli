@@ -157,15 +157,22 @@ def create_app(
         if not supplied or not hmac.compare_digest(supplied, session.csrf_token):
             raise HTTPException(status_code=403, detail="请求验证失败，请刷新页面")
 
-    @app.get("/login", response_class=HTMLResponse)
-    async def login_page(request: Request):
-        if current_session(request):
-            return RedirectResponse("/", status_code=303)
+    def render_login(
+        request: Request,
+        *,
+        error: str | None = None,
+        status_code: int = 200,
+    ) -> HTMLResponse:
         nonce = secrets.token_urlsafe(24)
         response = templates.TemplateResponse(
             request=request,
             name="login.html",
-            context={"login_csrf": nonce, "app_version": __version__},
+            status_code=status_code,
+            context={
+                "login_csrf": nonce,
+                "error": error,
+                "app_version": __version__,
+            },
         )
         response.set_cookie(
             LOGIN_CSRF_COOKIE,
@@ -178,6 +185,12 @@ def create_app(
         )
         return response
 
+    @app.get("/login", response_class=HTMLResponse)
+    async def login_page(request: Request):
+        if current_session(request):
+            return RedirectResponse("/", status_code=303)
+        return render_login(request)
+
     @app.post("/login", response_class=HTMLResponse)
     async def login(request: Request):
         form = await request.form()
@@ -185,18 +198,17 @@ def create_app(
         supplied_csrf = str(form.get("csrf_token", ""))
         cookie_csrf = request.cookies.get(LOGIN_CSRF_COOKIE, "")
         if not cookie_csrf or not hmac.compare_digest(supplied_csrf, cookie_csrf):
-            raise HTTPException(status_code=403, detail="登录页面已失效，请刷新后重试")
+            return render_login(
+                request,
+                error="登录页面已失效，请重新输入后再试",
+                status_code=403,
+            )
         if not app.state.limiter.allowed(key):
             retry = app.state.limiter.retry_after(key)
-            return templates.TemplateResponse(
-                request=request,
-                name="login.html",
+            return render_login(
+                request,
                 status_code=429,
-                context={
-                    "login_csrf": supplied_csrf,
-                    "error": f"尝试次数过多，请在 {retry} 秒后重试",
-                    "app_version": __version__,
-                },
+                error=f"尝试次数过多，请在 {retry} 秒后重试",
             )
         supplied_user = str(form.get("username", ""))[:128]
         supplied_password = str(form.get("password", ""))
@@ -204,15 +216,10 @@ def create_app(
         valid = hmac.compare_digest(supplied_user, app.state.username) and valid_password
         if not valid:
             app.state.limiter.fail(key)
-            return templates.TemplateResponse(
-                request=request,
-                name="login.html",
+            return render_login(
+                request,
                 status_code=401,
-                context={
-                    "login_csrf": supplied_csrf,
-                    "error": "用户名或密码错误",
-                    "app_version": __version__,
-                },
+                error="用户名或密码错误",
             )
         app.state.limiter.clear(key)
         token, _session = app.state.sessions.create(app.state.username)
