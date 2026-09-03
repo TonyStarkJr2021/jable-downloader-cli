@@ -322,7 +322,7 @@ class WebAppTests(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 303)
         dashboard = self.client.get("/")
-        self.assertIn('/static/app.js?v=2.7.8-focus-guard-2', dashboard.text)
+        self.assertIn('/static/app.js?v=2.7.8-focus-guard-3', dashboard.text)
         return re.search(r'name="csrf-token" content="([^"]+)"', dashboard.text).group(1)
 
     def test_media_apis_require_login(self):
@@ -332,16 +332,21 @@ class WebAppTests(unittest.TestCase):
             self.client.get("/settings", follow_redirects=False).status_code, 303
         )
 
-    def test_login_and_dashboard_do_not_request_initial_input_focus(self):
+    def test_all_pages_use_mobile_input_focus_guard(self):
         login = self.client.get("/login")
         self.assertNotIn("autofocus", login.text)
+        self.assertIn('/static/focus-guard.js?v=2.7.8-focus-guard-3', login.text)
+        self.assertRegex(login.text, r'id="username"[^>]+data-mobile-focus-guard[^>]+readonly')
+        self.assertRegex(login.text, r'id="password"[^>]+data-mobile-focus-guard[^>]+readonly')
         self.login()
         dashboard = self.client.get("/")
-        self.assertIn('id="code"', dashboard.text)
-        self.assertRegex(dashboard.text, r'id="code"[^>]+readonly')
-        script = self.client.get("/static/app.js")
-        self.assertIn("armCodeInputFocusGuard", script.text)
-        self.assertIn('codeInput.addEventListener("pointerdown"', script.text)
+        self.assertIn('/static/focus-guard.js?v=2.7.8-focus-guard-3', dashboard.text)
+        self.assertRegex(dashboard.text, r'id="code"[^>]+data-mobile-focus-guard[^>]+readonly')
+        settings = self.client.get("/settings")
+        self.assertIn('/static/focus-guard.js?v=2.7.8-focus-guard-3', settings.text)
+        self.assertEqual(settings.text.count("data-mobile-focus-guard"), 8)
+        script = self.client.get("/static/focus-guard.js")
+        self.assertIn('field.addEventListener("pointerdown"', script.text)
         self.assertIn('window.addEventListener("pageshow"', script.text)
         self.assertIn('window.addEventListener("pagehide"', script.text)
         self.assertIn('window.addEventListener("beforeunload"', script.text)

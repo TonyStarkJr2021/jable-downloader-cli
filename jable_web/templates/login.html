@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>登录 · Jable Downloader</title>
     <link rel="stylesheet" href="/static/app.css?v={{ app_version }}">
+    <script src="/static/focus-guard.js?v={{ app_version }}-focus-guard-3" defer></script>
   </head>
   <body class="auth-page">
     <main class="auth-card">
@@ -16,9 +17,9 @@
       <form action="/login" method="post" class="stack-form">
         <input type="hidden" name="csrf_token" value="{{ login_csrf }}">
         <label for="username">用户名</label>
-        <input id="username" name="username" autocomplete="username" required>
+        <input id="username" name="username" autocomplete="username" data-mobile-focus-guard readonly required>
         <label for="password">密码</label>
-        <input id="password" name="password" type="password" autocomplete="current-password" required>
+        <input id="password" name="password" type="password" autocomplete="current-password" data-mobile-focus-guard readonly required>
         <button type="submit" class="primary-button">登录控制台</button>
       </form>
       <p class="security-note">请勿在不可信网络中通过明文 HTTP 输入密码。</p>

@@ -6,7 +6,8 @@
     <meta name="csrf-token" content="{{ csrf_token }}">
     <title>后台设置 · Jable Downloader</title>
     <link rel="stylesheet" href="/static/app.css?v={{ app_version }}">
-    <script src="/static/settings.js?v={{ app_version }}" defer></script>
+    <script src="/static/focus-guard.js?v={{ app_version }}-focus-guard-3" defer></script>
+    <script src="/static/settings.js?v={{ app_version }}-focus-guard-3" defer></script>
   </head>
   <body>
     <header class="topbar">
@@ -34,13 +35,13 @@
           <h2>登录账号</h2>
           <form id="account-form" class="settings-form">
             <label for="username">用户名</label>
-            <input id="username" name="username" value="{{ username }}" required>
+            <input id="username" name="username" value="{{ username }}" data-mobile-focus-guard readonly required>
             <label for="new-password">新密码</label>
-            <input id="new-password" name="new_password" type="password" minlength="12" autocomplete="new-password" placeholder="不修改请留空">
+            <input id="new-password" name="new_password" type="password" minlength="12" autocomplete="new-password" placeholder="不修改请留空" data-mobile-focus-guard readonly>
             <label for="confirm-password">确认新密码</label>
-            <input id="confirm-password" name="confirm_password" type="password" minlength="12" autocomplete="new-password" placeholder="再次输入新密码">
+            <input id="confirm-password" name="confirm_password" type="password" minlength="12" autocomplete="new-password" placeholder="再次输入新密码" data-mobile-focus-guard readonly>
             <label for="account-current-password">当前密码</label>
-            <input id="account-current-password" name="current_password" type="password" autocomplete="current-password" required>
+            <input id="account-current-password" name="current_password" type="password" autocomplete="current-password" data-mobile-focus-guard readonly required>
             <button class="primary-button" type="submit">保存账号设置</button>
           </form>
           <div id="account-message" class="settings-message" role="status" aria-live="polite"></div>
@@ -50,7 +51,7 @@
           <h2>Web 访问端口</h2>
           <form id="port-form" class="settings-form">
             <label for="port">端口</label>
-            <input id="port" name="port" type="number" min="1024" max="65535" value="{{ port }}" required>
+            <input id="port" name="port" type="number" min="1024" max="65535" value="{{ port }}" data-mobile-focus-guard readonly required>
             <div class="warning-box">
               <strong>修改前请先放行新端口</strong>
               <p>请在 VPS 防火墙和云服务器安全组中放行新的 TCP 端口。保存后 Web 服务会自动重启，当前地址将无法继续访问。</p>
@@ -60,7 +61,7 @@
               <span>我已确认防火墙和安全组将放行新端口</span>
             </label>
             <label for="port-current-password">当前密码</label>
-            <input id="port-current-password" name="current_password" type="password" autocomplete="current-password" required>
+            <input id="port-current-password" name="current_password" type="password" autocomplete="current-password" data-mobile-focus-guard readonly required>
             <button class="primary-button" type="submit">保存并重启 Web</button>
           </form>
           <div id="port-message" class="settings-message" role="status" aria-live="polite"></div>
@@ -78,7 +79,7 @@
           </div>
           <form id="proxy-form" class="settings-form proxy-form">
             <label for="proxy-url">代理地址</label>
-            <input id="proxy-url" name="proxy_url" type="password" autocomplete="new-password" placeholder="例如：http://用户名:密码@代理主机:端口；留空保持现有配置">
+            <input id="proxy-url" name="proxy_url" type="password" autocomplete="new-password" placeholder="例如：http://用户名:密码@代理主机:端口；留空保持现有配置" data-mobile-focus-guard readonly>
             <label class="check-row">
               <input id="proxy-download" name="proxy_download" type="checkbox" {% if supjav_proxy_download %}checked{% endif %}>
               <span>SupJav 视频下载也走代理（默认关闭，仅在播放器或分片同样返回 403 时启用）</span>
@@ -101,7 +102,7 @@
               <span>启用 SupJav 广告防护（推荐）</span>
             </label>
             <label for="play-attempts">最多播放尝试次数</label>
-            <input id="play-attempts" name="play_attempts" type="number" min="1" max="30" value="{{ supjav_play_attempts }}" required>
+            <input id="play-attempts" name="play_attempts" type="number" min="1" max="30" value="{{ supjav_play_attempts }}" data-mobile-focus-guard readonly required>
             <p class="muted">每次尝试都会继续捕获视频流；完整性检查仍会排除短广告和预览。默认 10 次。</p>
             <button class="primary-button" type="submit">保存广告防护</button>
           </form>

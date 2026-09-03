@@ -7,48 +7,6 @@ let managingMedia = false;
 let currentMediaItems = [];
 const selectedMedia = new Set();
 
-const codeInput = document.querySelector("#code");
-const guardMobileInputFocus = window.matchMedia("(hover: none) and (pointer: coarse)").matches;
-let codeInputActivated = false;
-
-function armCodeInputFocusGuard() {
-  if (!codeInput) return;
-  codeInputActivated = false;
-  codeInput.readOnly = true;
-  if (document.activeElement === codeInput) codeInput.blur();
-}
-
-function activateCodeInput() {
-  if (!codeInput) return;
-  codeInputActivated = true;
-  codeInput.readOnly = false;
-}
-
-function prepareCodeInputForPage() {
-  armCodeInputFocusGuard();
-  if (!guardMobileInputFocus) activateCodeInput();
-}
-
-// Android browsers can restore the previously focused form control after the
-// pageshow event. Keep the field read-only until a real pointer/touch/keyboard
-// interaction occurs, so a reload cannot summon the software keyboard.
-if (codeInput) {
-  codeInput.addEventListener("pointerdown", activateCodeInput);
-  codeInput.addEventListener("touchstart", activateCodeInput, { passive: true });
-  codeInput.addEventListener("mousedown", activateCodeInput);
-  codeInput.addEventListener("keydown", activateCodeInput);
-  codeInput.addEventListener("focus", () => {
-    if (guardMobileInputFocus && !codeInputActivated) codeInput.blur();
-  });
-  document.addEventListener("keydown", (event) => {
-    if (event.key === "Tab") activateCodeInput();
-  });
-}
-prepareCodeInputForPage();
-window.addEventListener("pageshow", prepareCodeInputForPage);
-window.addEventListener("pagehide", armCodeInputFocusGuard);
-window.addEventListener("beforeunload", armCodeInputFocusGuard);
-
 function formatBytes(value) {
   if (!Number.isFinite(value)) return "—";
   const units = ["B", "KB", "MB", "GB", "TB"];
