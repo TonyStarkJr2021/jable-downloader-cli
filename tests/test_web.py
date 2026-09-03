@@ -322,7 +322,7 @@ class WebAppTests(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 303)
         dashboard = self.client.get("/")
-        self.assertIn('/static/app.js?v=2.7.8', dashboard.text)
+        self.assertIn('/static/app.js?v=2.7.8-focus-guard-2', dashboard.text)
         return re.search(r'name="csrf-token" content="([^"]+)"', dashboard.text).group(1)
 
     def test_media_apis_require_login(self):
@@ -338,9 +338,13 @@ class WebAppTests(unittest.TestCase):
         self.login()
         dashboard = self.client.get("/")
         self.assertIn('id="code"', dashboard.text)
+        self.assertRegex(dashboard.text, r'id="code"[^>]+readonly')
         script = self.client.get("/static/app.js")
-        self.assertIn("clearRestoredInputFocus", script.text)
+        self.assertIn("armCodeInputFocusGuard", script.text)
+        self.assertIn('codeInput.addEventListener("pointerdown"', script.text)
         self.assertIn('window.addEventListener("pageshow"', script.text)
+        self.assertIn('window.addEventListener("pagehide"', script.text)
+        self.assertIn('window.addEventListener("beforeunload"', script.text)
 
     def test_stale_login_form_returns_utf8_html_and_refreshes_csrf(self):
         page = self.client.get("/login")

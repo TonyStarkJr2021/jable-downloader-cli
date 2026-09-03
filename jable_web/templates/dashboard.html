@@ -6,7 +6,7 @@
     <meta name="csrf-token" content="{{ csrf_token }}">
     <title>Jable Downloader</title>
     <link rel="stylesheet" href="/static/app.css?v={{ app_version }}">
-    <script src="/static/app.js?v={{ app_version }}" defer></script>
+    <script src="/static/app.js?v={{ app_version }}-focus-guard-2" defer></script>
   </head>
   <body>
     <header class="topbar">
@@ -32,7 +32,7 @@
         </div>
         <form id="download-form" class="download-form">
           <label class="sr-only" for="code">番号或详情页链接</label>
-          <input id="code" name="code" placeholder="IPX-850、300MIUM-1483、FC2-PPV-1234567 或详情页链接" autocomplete="off" required>
+          <input id="code" name="code" placeholder="IPX-850、300MIUM-1483、FC2-PPV-1234567 或详情页链接" autocomplete="off" readonly required>
           <button class="primary-button" type="submit">开始下载</button>
         </form>
         <p class="source-help">自动并行解析 Jable、MissAV、SupJav，按真实分辨率和码率选择最佳直链；全部没有时显示 JavBus 推荐磁链。</p>
